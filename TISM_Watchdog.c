@@ -2,6 +2,9 @@
 
   TISM_Watchdog.c - Task to check if other tasks are still alive. Generate warnings when timeouts expire.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+  
 */
 
 #include <stdio.h>

@@ -2,6 +2,9 @@
 
   TISM_SoftwareTimer.c - Library for setting and triggering timers. This library defines 2 types of timers; virtual and software.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 #include <stdio.h>

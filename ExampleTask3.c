@@ -9,6 +9,9 @@
 
   Note: requests to change task attributes are done via the messaging system. Messages are processed AFTER a task completes a run.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 #include "TISM.h"

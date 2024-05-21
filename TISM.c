@@ -2,6 +2,9 @@
   
   TISM.c - "The Incredible State Machine" - functions to set up the system and some generic tools.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+  
 */
 
 #include <string.h>

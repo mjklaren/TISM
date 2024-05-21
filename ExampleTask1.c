@@ -4,6 +4,9 @@
   This code uses the TaskManager, IRQHandler and messaging functions.
 
   Note: messages are stored in an outbound queue and only delivered AFTER a task completes a run.
+  
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
 
 */
 

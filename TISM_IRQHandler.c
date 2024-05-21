@@ -2,6 +2,9 @@
 
   IRQHandler.c - Functions of ITSM IRQ handler module that generates messages to task after specific events have occured.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 #include <stdio.h>

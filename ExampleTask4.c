@@ -5,6 +5,9 @@
   
   This code uses the taskManager.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 #include "TISM.h"

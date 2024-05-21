@@ -3,6 +3,9 @@
   TISM.h - The main header file for "The Incredible State Machine".
   This file contains all definitions, global data structs and user acccesible functions of the TISM system.
   
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 #ifndef TISM

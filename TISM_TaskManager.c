@@ -2,6 +2,9 @@
 
   TISM_TaskManager.c - Code to manipulate task and system states, when requested via messages.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+  
 */
 
 #include <stdio.h>

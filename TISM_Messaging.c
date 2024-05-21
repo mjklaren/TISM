@@ -2,6 +2,9 @@
 
   TISM_messaging.c - Code for thread-safe messaging between tasks using circular buffers.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 #include <sys/time.h>

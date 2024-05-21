@@ -2,6 +2,9 @@
 
   TISM_Postman.c - Tools for managing the postboxes and delivery of messages between tasks.
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 #include <stdio.h>

@@ -2,6 +2,9 @@
 
   TISM_Scheduler.c - The scheduler of the TISM-system (non-preemptive/cooperative multitasking).
 
+  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Distributed under the GPLv3 license
+
 */
 
 
