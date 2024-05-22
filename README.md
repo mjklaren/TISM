@@ -16,7 +16,7 @@ To build and install TISM on the Pico:
 - Hold the BOOTSEL-button while plugging in the Raspberry Pi Pico. It will now appear as a USB mass storage device on your computer.
 - Drag and drop "main.uf2" from the "build" folder into the Pico folder.
 
-After succesful installation the Pico's onboard LED will start flashing. The frequency of the flashing LED will change every 10 seconds. If the button is pressed the frequency will change as well. 
+After succesful installation the Pico's onboard LED will start flashing. The LED's frequency of flashing will change every 10 seconds. If the button is pressed the frequency will change as well. 
 
 And that's it! Check the sourcecode (ExampleTask1.c to ExampleTask4.c) to see what happens internally. TISM (and the example application) will write some logging information to standard output. To see the output (on Linux) use a terminal emulator:
 
