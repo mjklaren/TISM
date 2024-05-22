@@ -13,7 +13,7 @@ However, TISM is not an operating system. It does not provide a filesystem, it d
 
 TISM (and the example application) will write some logging information to standard output. To see the output (on Linux) use a terminal emulator:
 
-'sudo screen /dev/ttyACM0'
+`sudo screen /dev/ttyACM0`
 
 
 The source code is distributed under the GPLv3 license.
