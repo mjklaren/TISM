@@ -25,14 +25,14 @@
 void StartCore2()
 {
   if (TISM_Scheduler(CORE1))
-    fprintf(STDERR, "Main: TISM Scheduler for CORE1 exited with error.\n");
+    fprintf(STDERR, "TISM: TISM Scheduler for CORE1 exited with error.\n");
 }
 
 
 void main(void)
 {
   // Initialize the TISM system.
-  System.SystemDebug=DEBUG_LOW;     // Always set the debug-level before init. Use with caution!
+  System.SystemDebug=DEBUG_HIGH;     // Always set the debug-level before init. Use with caution!
   TISM_InitializeSystem();
  
   // Register the processes that do the actual work. When registering tasks the TaskName and Priority MUST be provided. 
@@ -42,7 +42,7 @@ void main(void)
       TISM_RegisterTask(&ExampleTask4,"ExampleTask4",PRIORITY_NORMAL))!=0)
   {
      // An error occured during registering of the tasks. Abort.
-     fprintf(STDERR, "Main: Error occured when registering a tasks. Stopping...\n");
+     fprintf(STDERR, "TISM: Error occured when registering a tasks. Stopping...\n");
      exit;
   };  
  
@@ -51,17 +51,18 @@ void main(void)
   //   System.Task[TaskCounter].TaskDebug=DEBUG_HIGH;
 
   // Set debug-levels of individual tasks. Use with caution!
-  System.Task[TISM_GetTaskID("ExampleTask1")].TaskDebug=DEBUG_NONE;
-  System.Task[TISM_GetTaskID("ExampleTask2")].TaskDebug=DEBUG_NONE;
-  System.Task[TISM_GetTaskID("ExampleTask3")].TaskDebug=DEBUG_NONE;
-  System.Task[TISM_GetTaskID("ExampleTask4")].TaskDebug=DEBUG_NONE;
+  System.Task[TISM_GetTaskID("ExampleTask1")].TaskDebug=DEBUG_HIGH;
+  System.Task[TISM_GetTaskID("ExampleTask2")].TaskDebug=DEBUG_HIGH;
+  System.Task[TISM_GetTaskID("ExampleTask3")].TaskDebug=DEBUG_HIGH;
+  System.Task[TISM_GetTaskID("ExampleTask4")].TaskDebug=DEBUG_HIGH;
   
   // Start up the 2nd core and fire up a 2nd TISM_Scheduler.
   multicore_launch_core1(StartCore2);
 
   // All tasks registered and 2nd core running. Now start up the scheduler for Core 0.
   if (TISM_Scheduler(CORE0))
-    fprintf(STDERR, "Main: TISM Scheduler for CORE0 exited with error.\n");
+    fprintf(STDERR, "TISM: TISM Scheduler for CORE0 exited with error.\n");
   
-  printf("Program completed.\n");
+  printf("TISM: Program completed.\n");
+  sleep_ms(STARTUP_DELAY);
 }

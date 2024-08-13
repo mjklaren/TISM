@@ -1,6 +1,19 @@
 /*
+  IRQHandler.c
+  ============
+  Routines to process external interrupts (IRQs). Other functions can 'subscribe' to these events, after which IRQHandler will
+  send messages when events occur. This task uses the global circular buffer IRQHandlerInboundQueue defined in TISM_Definitions.h
 
-  IRQHandler.c - Functions of ITSM IRQ handler module that generates messages to task after specific events have occured.
+  The IRQ handler process:
+  - Task subscribe thenselves to events on GPIOs by using TISM_IRQHandlerSubscribe-function, which sends a 
+    subscription-message to TISM_IRQHandler (type=GPIO number, message=interrupt events).
+  - TISM_IRQHander registers the subscriptions (using linear list) and the generic eventhandler to the specified GPIO.
+  - When an interrupt is received TISM_IRQHandler (TISM_IRQHandlerCallback function) writes a message to IRQHandlerInboundQueue.
+  - TISM_Scheduler continuously checks for the availability of new messages in this queue. If a message is waiting, 
+    TISM_IRQHandler is started.
+  - Based on the linear list TISM_IRQHandler sends messages to the corresponding tasks via the regular messaging method.
+  - The subscribed tasks will receive a message coming from TISM_IRQHandler, GPIO number as message type and Event number as 
+    message for further processing.
 
   Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
@@ -45,8 +58,35 @@ struct TISM_IRQHandlerData
 
 
 
-// Subscribe a task to a specific event occuring on the specified GPIO by sending a request message to TISM_IRQHandler. 
-bool TISM_IRQHandlerSubscribe(TISM_Task ThisTask, uint8_t GPIO, uint32_t Events, bool GPIOPullDown, uint32_t AntiBounceTimeout)
+/*
+  Description 
+  Subscribe a task to a specific event occuring on the specified GPIO by sending a request message
+  to TISM_IRQHandler. No error checking on the specified GPIOs or Event types. WHen the specified event occurs,
+  TISM_IRQHandler sends a message (message type is the GPIO number).
+
+  Note: when a subscription is handled for the first time for a specific GPIO, the port function is set to
+        GPIO_FUNC_SIO, direction is set to input and treated as 'pull down' port.
+
+  Parameters:
+  TISM_Task ThisTask         - Struct containing all task related information.
+  uint GPIO                  - GPIO subscription to modify.
+  uint32_t Events            - Events to subscribe to (one or more, by applying bitwise OR '|'):
+                               GPIO_IRQ_LEVEL_LOW
+                               GPIO_IRQ_LEVEL_HIGH
+                               GPIO_IRQ_EDGE_FALL
+                               GPIO_IRQ_EDGE_RISE                                                                                             
+                               IRQ_UNSUBSCRIBE     - Unsubscribe from the specified GPIO interrupts
+  bool GPIOPullDown          - Initialize GPIO with pull-down resistor when ´true´. The first registration determines the actual setting.
+  uint32_t AntiBounceTimeout - Timeout period (in usec) that needs to expire before next similar interrupt is forwarded 
+                               (anti-bounce measure). Max. timeout period is 16777215 usec (24 bits); we use the remaining bits
+                               to pass other parameters through the message.
+
+  Events: GPIO_IRQ_LEVEL_LOW = 0x1u , GPIO_IRQ_LEVEL_HIGH = 0x2u , GPIO_IRQ_EDGE_FALL = 0x4u , GPIO_IRQ_EDGE_RISE = 0x8u
+
+  Return value:
+  false - Message delivery failed.
+  true  - Request sent.
+*/bool TISM_IRQHandlerSubscribe(TISM_Task ThisTask, uint8_t GPIO, uint32_t Events, bool GPIOPullDown, uint32_t AntiBounceTimeout)
 {
   // Use the Specification-field in the message to capture the AntiBounceTimeout and the GPIOPullDown.
   uint32_t CombinedValue=(0xFFFFFF & AntiBounceTimeout)+(GPIOPullDown==true?0x01000000:0);
@@ -91,16 +131,26 @@ void TISM_IRQHandlerCallback(uint8_t GPIO,uint32_t Events)
 }
 
 
-// The main task for the IRQ handler. Handles the initialization and registration of subscriptions to GPIO interrupts.
-// This function is called by TISM_Scheduler.
+/*
+  Description
+  The main task for the IRQ handler. Handles the initialization and registration of subscriptions to GPIO interrupts.
+  This function is called by TISM_Scheduler.
+
+  Parameters:
+  TISM_Task ThisTask - Struct containing all task related information.
+
+  Return value:
+  OK              - Task run completed succesfully.
+  None-zero value - Error
+*/
 uint8_t TISM_IRQHandler (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run starting.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
   
   switch(ThisTask.TaskState)   
   {
     case INIT:  // Task required to initialize                
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Initializing with task ID %d and priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // Init the circular buffer to receive interrupts and clear the subscription-list.
                 TISM_CircularBufferInit (&IRQHandlerInboundQueue);           
@@ -116,7 +166,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task %d doing work at %llu with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // Are there any interrupts waiting in the circular buffer we need to process?
                 uint16_t MessageCounter=0;
@@ -126,7 +176,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                   // Read the next IRQ message from the queue and check which tasks have subscribed to it.
                   MessageToProcess=TISM_CircularBufferRead(&IRQHandlerInboundQueue);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Processing interrupt message '%ld' with type %d from the IRQ handler queue.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Processing interrupt message '%ld' with type %d from the IRQ handler queue.", MessageToProcess->Message, MessageToProcess->MessageType);
 
                   if(TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Initialized)
                   {                
@@ -145,7 +195,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                         else
                         {
                           // Message blocked as it is received within the anti bounce timeout period.
-                          if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Interrupt from GPIO %d blocked for task ID %d, within anti bounce timeout (%d).\n", ThisTask.TaskName, MessageToProcess->MessageType, SearchPointer->TaskID, SearchPointer->AntiBounceTimeout);
+                          if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Interrupt from GPIO %d blocked for task ID %d, within anti bounce timeout (%d).", MessageToProcess->MessageType, SearchPointer->TaskID, SearchPointer->AntiBounceTimeout);
                         }
                       }
                       SearchPointer=SearchPointer->NextSubscription;
@@ -163,7 +213,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message.
                   switch(MessageToProcess->MessageType)
@@ -198,7 +248,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                     case GPIO_27:
                     case GPIO_28:   // Subscription request received; register or update.
                                     // Is this GPIO already initialized? If not, then this is our first subscription.
-                                    if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Processing GPIO request.\n", ThisTask.TaskName);
+                                    if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Processing GPIO request.");
                                     
                                     struct TISM_IRQHandlerSubscription *SearchPointer, *PreviousSearchPointer;
                                     if(TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Initialized==false)
@@ -206,7 +256,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                       // Bug fix; when we receive an IRQ_UNSUBSCRIBE-request to an uninitialized port.
                                       if(MessageToProcess->Message==IRQ_UNSUBSCRIBE)
                                       {
-                                        fprintf(STDERR,"%s: Warning - Unsubscribe request received from %d (%s) for an uninitialized GPIO (%d); ignoring.\n", ThisTask.TaskName,MessageToProcess->SenderTaskID,System.Task[MessageToProcess->SenderTaskID].TaskName,MessageToProcess->MessageType);
+                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Warning - Unsubscribe request received from %d (%s) for an uninitialized GPIO (%d); ignoring.", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->MessageType);
                                         break;
                                       }
 
@@ -226,7 +276,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                         TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown=false;
                                       }
 
-                                      if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: First subscription, GPIO %d initialized (request from Task ID %d, event %d, internal resistor pull-%s).\n", ThisTask.TaskName, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->Message, (TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown==false?"up":"down"));
+                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "First subscription, GPIO %d initialized (request from Task ID %d, event %d, internal resistor pull-%s).", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->Message, (TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown==false?"up":"down"));
 
                                       TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Initialized=true;
 
@@ -241,7 +291,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                     else
                                     {
                                       // There are already tasks subscribed to this GPIO. 
-                                      if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Subscription to GPIO %d being added or modified (Task ID %d, event %d).\n", ThisTask.TaskName, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->Message);
+                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Subscription to GPIO %d being added or modified (Task ID %d, event %d).", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->Message);
 
                                       // Find the entry for this TaskID in the linear list, or create a new one.
                                       SearchPointer=TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions;
@@ -272,13 +322,13 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                           }
                                           free(SearchPointer);
 
-                                          if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task ID %d unsubscribed from GPIO %d.\n", ThisTask.TaskName, MessageToProcess->SenderTaskID, MessageToProcess->MessageType);
+                                          if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Task ID %d unsubscribed from GPIO %d.", MessageToProcess->SenderTaskID, MessageToProcess->MessageType);
 
                                           // Was this the last subscription to this GPIO? Then we can 'release' this GPIO.
                                           if(TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions==NULL)
                                           {
                                              // No subscriptions.
-                                            if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: No tasks subscribed to GPIO %d, releasing.\n", ThisTask.TaskName, MessageToProcess->MessageType);
+                                            if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "No tasks subscribed to GPIO %d, releasing.", MessageToProcess->MessageType);
 
                                             // Todo; interrupt handler for GPIO's are never released - not even possible in SDK?
                                           }
@@ -288,7 +338,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                           // Update the existing record in the list.
                                           SearchPointer->Events=MessageToProcess->Message;
 
-                                          if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Subscription to GPIO %d modified.\n", ThisTask.TaskName, MessageToProcess->MessageType);
+                                          if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Subscription to GPIO %d modified.", MessageToProcess->MessageType);
                                         }
                                       }
                                       else
@@ -302,7 +352,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                         NewSubscription->NextSubscription=NULL;
                                         PreviousSearchPointer->NextSubscription=NewSubscription;
 
-                                        if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task ID %d subscribed to GPIO %d, anti-bounce value %d\n", ThisTask.TaskName, MessageToProcess->SenderTaskID, MessageToProcess->MessageType, NewSubscription->AntiBounceTimeout);                                        
+                                        if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Task ID %d subscribed to GPIO %d, anti-bounce value %d", MessageToProcess->SenderTaskID, MessageToProcess->MessageType, NewSubscription->AntiBounceTimeout);                                        
                                       }
                                     }
 
@@ -324,23 +374,23 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                     
 		                                if (ThisTask.TaskDebug) 
                                     {
-                                      fprintf(STDOUT, "%s: Subscriptions list for GPIO %d updated.\n", ThisTask.TaskName, MessageToProcess->MessageType);
-                                      fprintf(STDOUT, "%s: Tasks registered to interrupts on this GPIO:\n", ThisTask.TaskName);
-                                      fprintf(STDOUT, "%s: ============================================\n", ThisTask.TaskName);                                      
+                                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Subscriptions list for GPIO %d updated.", MessageToProcess->MessageType);
+                                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Tasks registered to interrupts on this GPIO:");
+                                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "============================================");                                      
                                       SearchPointer=TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions;
                                       while(SearchPointer!=NULL)
                                       {
-                                        fprintf(STDOUT, "%s: Task ID: %d (%s) subscribed to event %d, anti-bounce value %d.\n", ThisTask.TaskName, SearchPointer->TaskID, System.Task[SearchPointer->TaskID].TaskName, SearchPointer->Events, SearchPointer->AntiBounceTimeout);
+                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Task ID: %d (%s) subscribed to event %d, anti-bounce value %d.", SearchPointer->TaskID, System.Task[SearchPointer->TaskID].TaskName, SearchPointer->Events, SearchPointer->AntiBounceTimeout);
                                         SearchPointer=SearchPointer->NextSubscription;
                                       }
-                                      fprintf(STDOUT, "%s: List complete. Summary event mask: %ld. GPIO initialized as %s.\n", ThisTask.TaskName, TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].EventMask, (TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown?"pull-down":"pull-up"));
+                                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "List complete. Summary event mask: %ld. GPIO initialized as %s.", TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].EventMask, (TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown?"pull-down":"pull-up"));
                                     }
                                     break;
                     case GPIO_23:   // Power save
                     case GPIO_24:   // VBUS detect
                     case GPIO_25:   // LED port of the Raspberry Pi Pico
                     default:        // Unknown message type - ignore.
-                                    fprintf(STDERR, "%s: Warning - Invalid GPIO subscription (%d) requested by %d (%s); ignoring.\n", ThisTask.TaskName, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Warning - Invalid GPIO subscription (%d) requested by %d (%s); ignoring.", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
                                     break;
                   }
                   TISM_PostmanDeleteMessage(ThisTask);
@@ -351,7 +401,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case STOP:  // Task required to stop
-		            if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Stopping.\n", ThisTask.TaskName);
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		        
 				        // Tasks for stopping
 			          
@@ -361,7 +411,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
   }
 		
   // All done.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run completed.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
   return (OK);
 }
 

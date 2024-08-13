@@ -39,13 +39,13 @@ struct ExampleTask1Data
 */
 uint8_t ExampleTask1 (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) printf("%s: Run starting.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
   
   // The scheduler maintains the state of the task and the system. 
   switch(ThisTask.TaskState)   
   {
     case INIT:  // Activities to initialize this task (e.g. initialize ports or peripherals).
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Initializing with task ID %d and priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 				        
                 // Store the IDs of the tasks we will be sending messages to.
                 ExampleTask1Data.ExampleTask2ID=TISM_GetTaskID("ExampleTask2");
@@ -63,7 +63,7 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task %d doing work at %llu with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
@@ -72,7 +72,7 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
@@ -87,14 +87,14 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
                                        switch(MessageToProcess->Message)
                                        {
                                          case GPIO_IRQ_EDGE_FALL: // Button is pressed.
-                                                                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: The button is pressed!\n", ThisTask.TaskName);  
+                                                                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "The button is pressend!."); 
 
                                                                   TISM_PostmanWriteMessage(ThisTask,ExampleTask1Data.ExampleTask2ID,MessageToProcess->Message,0,0);
                                                                   TISM_PostmanWriteMessage(ThisTask,ExampleTask1Data.ExampleTask3ID,MessageToProcess->Message,0,0);
                                          
                                                                   break;
                                          case GPIO_IRQ_EDGE_RISE: // Button is released.
-                                                                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: The button is released!\n", ThisTask.TaskName);
+                                                                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "The button is released!");
 
                                                                   TISM_PostmanWriteMessage(ThisTask,ExampleTask1Data.ExampleTask3ID,MessageToProcess->Message,0,0);                                                                  
                                                                   break;
@@ -102,7 +102,7 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
 
                                        // Increase the counter - will wrap around after 255 events.
                                        ExampleTask1Data.ButtonPressCounter++;
-                                       if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Number of events: %d\n", ThisTask.TaskName,ExampleTask1Data.ButtonPressCounter);
+                                       if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of events: %d", ExampleTask1Data.ButtonPressCounter);
                                        
                                        break;
                     default:           // Unknown message type - ignore.
@@ -116,7 +116,7 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case STOP:  // Task required to stop this task.
-		            if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Stopping.\n", ThisTask.TaskName);
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		          
                 // Set the task state to DOWN. 
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
@@ -124,7 +124,7 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
   }
 		
   // Run completed.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run completed.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
 
   return (OK);
 }

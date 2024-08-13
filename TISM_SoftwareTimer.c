@@ -1,6 +1,12 @@
 /*
 
-  TISM_SoftwareTimer.c - Library for setting and triggering timers. This library defines 2 types of timers; virtual and software.
+  TISM_SoftwareTimer.c
+  ====================
+  Library for setting and triggering timers. This library defines 2 types of timers; virtual and software.
+  Virtual timers are not 'real' timers but timer values are calculated and to be checked regularly for expiration.
+  Software timers are registered and a message is sent to the requesting task once the timer has expired.
+  As this is a software timer it isn´t very accurate; therefore timer values for software timers are specified in milliseconds.
+  Despite the inaccuracy software timers are still very usefull for scheduling (repetitive) tasks.
 
   Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
@@ -39,7 +45,7 @@ struct TISM_SoftwareTimerData
 } TISM_SoftwareTimerData;
 
 
-// Cancel a specific timer - erase the entry from the linear list.
+// Internal function - cancel a specific timer - erase the entry from the linear list.
 void TISM_SoftwareTimerCancelTimer(uint8_t TaskID, uint8_t TimerID)
 {
   struct TISM_SoftwareTimerEntry *SearchPointer=TISM_SoftwareTimerData.Entries, *PreviousSearchPointer=SearchPointer;
@@ -76,21 +82,55 @@ void TISM_SoftwareTimerCancelTimer(uint8_t TaskID, uint8_t TimerID)
 }
 
 
-// Create a virtual software timer. No events, just calculate the value of future timer and return the value.
+/*
+  Description
+  Create a virtual software timer. No events, just calculate the value of future timer and return the value.
+  As the RP2040 doesn´t have a realtime clock the specified time is measured in usec from 'NOW'.
+  
+  Parameters:
+  uint64_t TimerUsec - Time in usec when timer should expired.
+
+  Return value:
+  uint64_t - Timestamp; 'NOW' + when the timer should expire.
+*/
 uint64_t TISM_SoftwareTimerSetVirtual(uint64_t TimerUsec)
 {
   return(time_us_64()+TimerUsec);
 }
 
 
-// Check the status of the virtual software timer - is it expired? If so, return true.
+/*
+  Description
+  Check the status of the virtual software timer - is it expired? If so, return true.
+  
+  Parameters:
+  uint64_t TimerUsec - Timer value ('NOW' + timer in usec).
+
+  Return value:
+  true  - Timer is expired.
+  false - Timer hasn´t expired.
+*/
 bool TISM_SoftwareTimerVirtualExpired(uint64_t TimerUsec)
 {
   return(time_us_64()>TimerUsec?true:false);
 }
 
 
-// Create a SoftwareTimerEntry struct and send a message to TISM_SoftwareTimer in order to register a new timer.
+/*
+  Description
+  Create a SoftwareTimerEntry struct and send a message to TISM_SoftwareTimer in order to register a new timer.
+  As the RP2040 doesn´t have a realtime clock the specified time is measured in usec from 'NOW'.
+
+  Parameters:
+  TISM_Task ThisTask         - Struct containing all task related information.
+  uint8_t TimerID            - The identifier for this specific timer (unique for this Task ID).
+  bool RepetitiveTimer       - Repetitive timer (true/false)
+  uint32_t TimerIntervalMsec - Time in milliseconds when timer should expired (measured from 'NOW').
+
+  Return value:
+  true                       - Timer set 
+  false                      - Error setting the timer
+*/
 bool TISM_SoftwareTimerSet(TISM_Task ThisTask,uint8_t TimerID, bool RepetitiveTimer, uint32_t TimerIntervalMsec)
 {
   struct TISM_SoftwareTimerEntry *EntryPointer=malloc(sizeof(struct TISM_SoftwareTimerEntry));
@@ -104,22 +144,43 @@ bool TISM_SoftwareTimerSet(TISM_Task ThisTask,uint8_t TimerID, bool RepetitiveTi
 }
 
 
-// Send a message to TISM_SoftwareTImerID to cancel the specified timer.
+/*
+  Description
+  Cancel a specific timer - erase the entry from the linear list.
+  
+  Parameters:
+  uint8_t TaskID  - TaskID for which the timer was set.
+  uint8_t TimerID - ID of the timer to cancel
+
+  Return value:
+  none
+*/
 bool TISM_SoftwareTimerCancel(TISM_Task ThisTask, uint8_t TimerID)
 {
   return(TISM_PostmanWriteMessage(ThisTask,System.TISM_SoftwareTimerTaskID,TISM_CANCEL_TIMER,(uint32_t)TimerID,0));
 }
 
 
-// This is the function that is registered in the TISM-system.
+/*
+  Description:
+  This is the task that is registered in the TISM-system.
+  This function is called by TISM_Scheduler.
+
+  Parameters:
+  TISM_Task ThisTask      - Struct containing all task related information.
+  
+  Return value:
+  <non zero value>        - Task returned an error when executing.
+  OK                      - Run succesfully completed.
+*/
 uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) printf("%s: Run starting.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
   
   switch(ThisTask.TaskState)   // Unknown states are ignored
   {
     case INIT:  // Task required to initialize                
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Initializing with task ID %d and priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 				        
                 // Initialize variables
                 TISM_SoftwareTimerData.Entries=NULL;
@@ -129,7 +190,7 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task %d doing work at %llu with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // First check for incoming messages and process these.
                 uint8_t MessageCounter=0;
@@ -138,7 +199,7 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
@@ -147,23 +208,23 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                                             TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                             break;
                     case TISM_CANCEL_TIMER: // Cancel an existing timer
-                                            if(ThisTask.TaskDebug) fprintf(STDOUT, "%s: Cancellation received for software timer %d from task ID %d (%s).\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                            if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Cancellation received for software timer %d from task ID %d (%s).", MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                                             if(TISM_SoftwareTimerData.Entries!=NULL)
                                             {
                                               TISM_SoftwareTimerCancelTimer((uint8_t) MessageToProcess->SenderTaskID, (uint8_t) MessageToProcess->Message);
 
-                                              if(ThisTask.TaskDebug) fprintf(STDOUT, "%s: Software timer %d from task ID %d removed.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID);
+                                              if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer %d from task ID %d removed.", MessageToProcess->Message, MessageToProcess->SenderTaskID);
                                             }
                                             else
                                             {
                                               // Cancel-timer message received, but list is empty.
-                                              fprintf(STDERR, "%s: Warning - Cancellation received for Timer ID %D (Task ID %d, %s) but no timers registered. Ignoring.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->Specification,  System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                              TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Cancellation received for Timer ID %D (Task ID %d, %s) but no timers registered. Ignoring.", MessageToProcess->Message, MessageToProcess->Specification,  System.Task[MessageToProcess->SenderTaskID].TaskName);
                                             }
                                             break;
                     case TISM_SET_TIMER:    // Set a new timer. Add the new entry at the beginning of the linear list. 
                                             // Warning - no checking for duplicate entries!
-                                            if(ThisTask.TaskDebug) fprintf(STDOUT, "%s: New software timer entry received from task ID %d (%s).\n", ThisTask.TaskName, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                            if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "New software timer entry received from task ID %d (%s).", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                                             struct TISM_SoftwareTimerEntry *SearchPointer=(struct TISM_SoftwareTimerEntry *)MessageToProcess->Message;
                                             SearchPointer->NextEvent=TISM_SoftwareTimerData.Entries;
@@ -190,7 +251,7 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                     if(SearchPointer->NextTimerEventUsec<RunTimestamp)
                     {
                       // Timer expired, send out notification. If it's not repetitive, remove the entry.
-                      if(ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Timer %d expired for task %d, sending message.\n", ThisTask.TaskName, SearchPointer->TimerID, SearchPointer->TaskID);                      
+                      if(ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Timer %d expired for task %d, sending message.", SearchPointer->TimerID, SearchPointer->TaskID);                      
                       
                       TISM_PostmanWriteMessage(ThisTask,SearchPointer->TaskID,SearchPointer->TimerID,0,0);
                       if(SearchPointer->RepetitiveTimer)
@@ -200,14 +261,14 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                         if(SearchPointer->NextTimerEventUsec<TISM_SoftwareTimerData.FirstTimerEventUsec)
                           TISM_SoftwareTimerData.FirstTimerEventUsec=SearchPointer->NextTimerEventUsec;
 
-                        if(ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Repetitive timer, rescheduled to %llu.\n", ThisTask.TaskName, SearchPointer->NextTimerEventUsec);
+                        if(ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Repetitive timer, rescheduled to %llu.", SearchPointer->NextTimerEventUsec);
                       }
                       else
                       {
                         // Non-repetitive timer; delete it.
                         TISM_SoftwareTimerCancelTimer(SearchPointer->TaskID, SearchPointer->TimerID);
 
-                        if(ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Non-repetitive timer, requested to be deleted.\n", ThisTask.TaskName);
+                        if(ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Non-repetitive timer, requested to be deleted.");
                       }
                     }
                     else
@@ -224,14 +285,14 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                   if(ThisTask.TaskDebug) 
                   {
                     SearchPointer=TISM_SoftwareTimerData.Entries;
-                    fprintf(STDOUT, "%s: Software timer entries:\n", ThisTask.TaskName);
-                    fprintf(STDOUT, "%s: =======================\n", ThisTask.TaskName);                                      
+                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer entries:");
+                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "=======================");                                      
                     while(SearchPointer!=NULL)
                     {
-                      fprintf(STDOUT, "%s: Task ID: %d (%s), Timer ID %d, %srepetitive, interval %d msec, next event %ld.\n", ThisTask.TaskName, SearchPointer->TaskID, System.Task[SearchPointer->TaskID].TaskName, SearchPointer->TimerID, (SearchPointer->RepetitiveTimer?"":"non-"), SearchPointer->TimerIntervalMsec, SearchPointer->NextTimerEventUsec);
+                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Task ID: %d (%s), Timer ID %d, %srepetitive, interval %d msec, next event %ld.", SearchPointer->TaskID, System.Task[SearchPointer->TaskID].TaskName, SearchPointer->TimerID, (SearchPointer->RepetitiveTimer?"":"non-"), SearchPointer->TimerIntervalMsec, SearchPointer->NextTimerEventUsec);
                       SearchPointer=SearchPointer->NextEvent;
                     }
-                    fprintf(STDOUT, "%s: List complete. Next event: %llu.\n", ThisTask.TaskName, TISM_SoftwareTimerData.FirstTimerEventUsec);
+                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "List complete. Next event: %llu.", TISM_SoftwareTimerData.FirstTimerEventUsec);
                   }
                 }
                 else
@@ -239,11 +300,11 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                   // No entries - go to sleep.
                   TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 
-                  if(ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: No timers set, returning to sleep.\n", ThisTask.TaskName);
+                  if(ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "No timers set, returning to sleep.");
                 }
                 break;
 	  case STOP:  // Task required to stop
-		            if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Stopping.\n", ThisTask.TaskName);
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		        
 				        // Tasks for stopping.
 			          
@@ -253,7 +314,7 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
   }
 		
   // All done.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run completed.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
 
   return (OK);
 }

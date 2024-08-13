@@ -1,6 +1,6 @@
 /*
 
-  A template for a task in the TISM-system.
+  A template for a task running in the TISM-system.
 
   Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
@@ -24,7 +24,7 @@ struct TaskTemplateData
 /*
   Description:
   This is the function that is registered in the TISM-system via the TISM_RegisterTask. A pointer to this function is used.
-  For debugging purposes three fprintf-statements are added (not mandatory).
+  For debugging purposes the TISM_EventLoggerLogEvent-function is used (not mandatory).
 
   Parameters:
   TISM_Task ThisTask - Struct containing all relevant information for this task to run. This is provided by the scheduler.
@@ -35,7 +35,7 @@ struct TaskTemplateData
 */
 uint8_t TaskTemplate (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) printf("%s: Run starting.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
   
   /*
     The scheduler maintains the state of the task and the system. Specify here the actions per state.
@@ -48,7 +48,7 @@ uint8_t TaskTemplate (TISM_Task ThisTask)
   switch(ThisTask.TaskState)   
   {
     case INIT:  // Activities to initialize this task (e.g. initialize ports or peripherals).
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Initializing with task ID %d and priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 				        
                 // Give your variables an initial value.
                 TaskTemplateData.YourVariable1=11;
@@ -58,7 +58,7 @@ uint8_t TaskTemplate (TISM_Task ThisTask)
                 // TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task %d doing work at %llu with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
@@ -67,7 +67,7 @@ uint8_t TaskTemplate (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
@@ -86,7 +86,7 @@ uint8_t TaskTemplate (TISM_Task ThisTask)
 
 				        break;
 	  case STOP:  // Task required to stop this task.
-		            if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Stopping.\n", ThisTask.TaskName);
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		          
                 // Set the task state to DOWN. 
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
@@ -94,7 +94,7 @@ uint8_t TaskTemplate (TISM_Task ThisTask)
   }
 		
   // Run completed.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run completed.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
 
   return (OK);
 }

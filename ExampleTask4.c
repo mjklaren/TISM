@@ -13,7 +13,7 @@
 #include "TISM.h"
 
 #define EXAMPLETASK4_EMULATELOAD   250  // Delay in msec; it will cause watchdog warnings when > WATCHDOG_TASK_TIMEOUT (in usec).
-#define EXAMPLETASK4_MAXTASKSTARTS 250  // Number of runs before stopping.
+#define EXAMPLETASK4_MAXTASKSTARTS 10   // Number of runs before stopping.
 
 
 // The structure containing all data for this task to run.
@@ -36,26 +36,27 @@ struct ExampleTask4Data
 */
 uint8_t ExampleTask4 (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) printf("%s: Run starting.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
   
   // The scheduler maintains the state of the task and the system.
   switch(ThisTask.TaskState)   
   {
     case INIT:  // Activities to initialize this task (e.g. initialize ports or peripherals).
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Initializing with task ID %d and priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 				        
                 // Set the load we need to emulate and the maximum number of runs.
                 ExampleTask4Data.EmulateLoad=EXAMPLETASK4_EMULATELOAD;
                 ExampleTask4Data.MaxNumberTaskStarts=EXAMPLETASK4_MAXTASKSTARTS;
+                ExampleTask4Data.TaskStarts=0;
 
-                if(ExampleTask4Data.EmulateLoad>0) fprintf(STDOUT, "%s: Warning - we're emulating load of %dms.\n", ThisTask.TaskName, ExampleTask4Data.EmulateLoad);
-                if(ExampleTask4Data.MaxNumberTaskStarts>0) fprintf(STDOUT, "%s: Warning - system will stop after %d runs.\n", ThisTask.TaskName, ExampleTask4Data.MaxNumberTaskStarts);                
+                if(ExampleTask4Data.EmulateLoad>0) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Warning - we're emulating load of %dms.", ExampleTask4Data.EmulateLoad);
+                if(ExampleTask4Data.MaxNumberTaskStarts>0) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Warning - system will stop after %d runs.", ExampleTask4Data.MaxNumberTaskStarts);                
 
                 // For tasks that only respond to events (=messages) we could set the sleep attribute to ´true'.
                 // TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task %d doing work at %llu with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
@@ -64,7 +65,7 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
@@ -83,8 +84,8 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
                 // Do we need to emulate a load?
                 if(ExampleTask4Data.EmulateLoad>0)
                 {
-                  if(ThisTask.TaskDebug) fprintf (STDOUT, "%s: Emulating load of %dms for task %s.\n", ThisTask.TaskName, ExampleTask4Data.EmulateLoad, ThisTask.TaskName);
-                  sleep_ms (ExampleTask4Data.EmulateLoad);    // RaspberryPi Pico
+                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Emulating load of %dms for task %s.", ExampleTask4Data.EmulateLoad, ThisTask.TaskName);
+                  sleep_ms (ExampleTask4Data.EmulateLoad);    
                 }
 
                 // Do we have a limit on task starts?
@@ -94,15 +95,17 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
                   if(ExampleTask4Data.TaskStarts>ExampleTask4Data.MaxNumberTaskStarts)
                   {
                     // Maximum reached - send a message to taskmanager to stop the system.
-                    fprintf (STDOUT, "%s: Maximum number of runs (%d) reached; stopping.\n", ThisTask.TaskName,ExampleTask4Data.MaxNumberTaskStarts);
+                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Maximum number of runs (%d) reached; stopping.", ExampleTask4Data.MaxNumberTaskStarts);
                     
                     // Stop the system by requesting the TaskManager.
-                    TISM_TaskManagerSetSystemState(ThisTask,STOP);
+                    TISM_TaskManagerSetSystemState(ThisTask, STOP);
                   }
+                  else
+                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of runs: %d.", ExampleTask4Data.TaskStarts);
                 }
 				        break;
 	  case STOP:  // Task required to stop this task.
-		            if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Stopping.\n", ThisTask.TaskName);
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		          
                 // Set the task state to DOWN. 
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
@@ -110,7 +113,7 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
   }
 		
   // Run completed.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run completed.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
 
   return (OK);
 }

@@ -12,7 +12,17 @@
 #include "TISM.h"
 
 
-// Get the TaskID for the task specified by name from the global Task structs.
+/*
+  Description 
+  Get the TaskID for the task specified by name from the global Task structs.
+
+  Parameters:
+  *TaskName    - Pointer to a string with the name of the task.
+
+  Return value:
+  -1           - Specified task name not found.
+  <int value>  - Task ID for the specific task, starting with 0.
+*/
 int TISM_GetTaskID(char *TaskName)
 {
   int TaskID=-1;
@@ -23,7 +33,17 @@ int TISM_GetTaskID(char *TaskName)
 }
 
 
-// Check if the specified TaskID is valid (=in use)
+/*
+  Description
+  Check if the specified TaskID is valid (=in use)
+
+  Parameters:
+  int TaskID   - The number of the task to check.
+
+  Return value:
+  false        - Invalid task ID
+  true         - Valid task ID
+*/
 bool TISM_IsValidTaskID(int TaskID)
 {
   if((TaskID>=0) && (TaskID<System.NumberOfTasks))
@@ -32,7 +52,17 @@ bool TISM_IsValidTaskID(int TaskID)
 }
 
 
-//  Check if the specified Task is awake.
+/*
+  Description
+  Check if the specified Task is awake.
+
+  Parameters:
+  int TaskID   - The number of the task to check.
+
+  Return value:
+  false        - Task is sleeping, or invalid task ID.
+  true         - Task is awake
+*/
 bool TISM_IsTaskAwake(int TaskID)
 {
   if((TaskID>=0) && (TaskID<System.NumberOfTasks))
@@ -41,14 +71,36 @@ bool TISM_IsTaskAwake(int TaskID)
 }
 
 
-// Check if the specified Task is a system task by checking first 5 characters for "TISM_".
+/*
+  Description
+  Check if the specified Task is a system task by checking first 5 characters for "TISM_".
+
+  Parameters:
+  int TaskID   - The number of the task to check.
+
+  Return value:
+  true         - Specified task is a system task.
+  false        - Specified task is not a system task.
+*/
 bool TISM_IsSystemTask(int TaskID)
 {
   return(strncmp(System.Task[TaskID].TaskName,"TISM_",5)==0?true:false);
 }
 
 
-// Register a new task in the global System struct.
+/*
+  Description
+  Register a new task in the global System struct.
+
+  Parameters:
+  int *Function           - Pointer to the function for this task; function returns int and takes no variables.
+  char *Name              - Pointer to text buffer with name of this process.
+  int TaskDefaultPriority - Priority for this task (PRIORITY_HIGH, PRIORITY_NORMAL, PRIORITY_LOW or other value in msec).
+
+  Return value:
+  ERR_TOO_MANY_TASKS      - Attempt was made to register > MAX_TASKS.
+  OK                      - Succes
+*/
 int TISM_RegisterTask(uint8_t (*Function)(TISM_Task), char *Name, uint32_t TaskPriority)
 {
   // Register the task-related data in the struct. Default values will be placed when initializing the System.
@@ -77,14 +129,24 @@ int TISM_RegisterTask(uint8_t (*Function)(TISM_Task), char *Name, uint32_t TaskP
   TISM_CircularBufferInit(System.Task[System.NumberOfTasks].InboundMessageQueue); 
   System.Task[System.NumberOfTasks].OutboundMessageQueue=NULL;          // Will be provided by the scheduler.
 
-  if(System.SystemDebug>=DEBUG_LOW) fprintf (STDOUT, "TISM: Task %s registered as task ID %d with priority %d.\n", System.Task[System.NumberOfTasks].TaskName, System.NumberOfTasks, System.Task[System.NumberOfTasks].TaskPriority);
-
+  if(System.SystemDebug>=DEBUG_LOW) 
+    fprintf (STDOUT, "TISM: Task %s registered as task ID %d with priority %d.\n", System.Task[System.NumberOfTasks].TaskName, System.NumberOfTasks, System.Task[System.NumberOfTasks].TaskPriority);
   System.NumberOfTasks++;
   return(OK);
 }
 
 
-// Initialize the global System-struct by providing default values. Furthermore, register the standard TISM tasks.
+/*
+  Description
+  Initialize the global System-struct by providing default values. Furthermore, register the standard TISM tasks.
+
+  Parameters:
+  None                    - This function works my modifying the global System and Task structs.
+
+  Return value:
+  ERR_INITIALIZING        - Error occured during initializing the system.
+  OK                      - Succes
+*/
 int TISM_InitializeSystem()
 {
   // Initialize the RP2040
@@ -109,7 +171,9 @@ int TISM_InitializeSystem()
   TISM_CircularBufferInit (&IRQHandlerInboundQueue); 
 	                           
   // Now register the standard TISM_processes.
-  if ((TISM_RegisterTask(&TISM_Postman, "TISM_Postman", PRIORITY_LOW)+
+  if ((TISM_RegisterTask(NULL, "TISM_Scheduler", PRIORITY_LOW)+                           // Dummy entry for the scheduler
+       TISM_RegisterTask(&TISM_EventLogger, "TISM_EventLogger", PRIORITY_LOW)+
+       TISM_RegisterTask(&TISM_Postman, "TISM_Postman", PRIORITY_LOW)+
        TISM_RegisterTask(&TISM_IRQHandler, "TISM_IRQHandler", PRIORITY_LOW)+
        TISM_RegisterTask(&TISM_Watchdog, "TISM_Watchdog", PRIORITY_LOW)+
        TISM_RegisterTask(&TISM_TaskManager, "TISM_TaskManager", PRIORITY_LOW)+
@@ -125,6 +189,7 @@ int TISM_InitializeSystem()
     System.TISM_IRQHandlerTaskID=TISM_GetTaskID("TISM_IRQHandler");
     System.TISM_TaskManagerTaskID=TISM_GetTaskID("TISM_TaskManager");
     System.TISM_WatchdogTaskID=TISM_GetTaskID("TISM_Watchdog");
+    System.TISM_EventLoggerTaskID=TISM_GetTaskID("TISM_EventLogger");
     System.TISM_SoftwareTimerTaskID=TISM_GetTaskID("TISM_SoftwareTimer");
     return(OK);
   }

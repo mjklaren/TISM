@@ -43,13 +43,13 @@ struct ExampleTask2Data
 */
 uint8_t ExampleTask2 (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) printf("%s: Run starting.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
   
   // The scheduler maintains the state of the task and the system. 
   switch(ThisTask.TaskState)   
   {
     case INIT:  // Activities to initialize this task (e.g. initialize ports or peripherals).
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Initializing with task ID %d and priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 				        
                 // Initialize the LED port.
                 gpio_init(LED_PIN);
@@ -68,7 +68,7 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
                 // TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task %d doing work at %llu with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
@@ -77,7 +77,7 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
@@ -89,7 +89,7 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
                                                // the frequency of the blinking light will change.
                     case GPIO_IRQ_EDGE_FALL  : // Button is pressed (message from ExampleTask1). Change the ToggleTimeDivision so that
                                                // the frequency of the blinking light will change.
-                                               if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Changing frequency of the blinker.\n", ThisTask.TaskName);
+                                               if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Changing frequency of the blinker.");
 
                                                ExampleTask2Data.ToggleTimeDivison=(ExampleTask2Data.ToggleTimeDivison==1?4:1);
                                                break;
@@ -119,7 +119,7 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
                 }
 				        break;
 	  case STOP:  // Task required to stop this task.
-		            if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Stopping.\n", ThisTask.TaskName);
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		          
                 // Set the task state to DOWN. 
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
@@ -127,7 +127,7 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
   }
 		
   // Run completed.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run completed.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
 
   return (OK);
 }

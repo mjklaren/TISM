@@ -1,6 +1,15 @@
 /*
+  TISM_Watchdoc.c
+  ===============
+  Task to check if other tasks are still alive. Generate warnings to STDthe EventLogger in case of timeouts.
+  This task runs as a 'regular' task in the TISM-system.
 
-  TISM_Watchdog.c - Task to check if other tasks are still alive. Generate warnings when timeouts expire.
+  Parameters:
+  TISM_Task ThisTask      - Struct containing all task related information.
+  
+  Return value:
+  <non zero value>        - Task returned an error when executing.
+  OK                      - Run succesfully completed.
 
   Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
@@ -35,11 +44,12 @@ struct TISM_WatchdogData
 */	
 uint8_t TISM_Watchdog (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) printf("%s: Run starting.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
+
   switch(ThisTask.TaskState)   // Unknown states are ignored
   {
     case INIT:  // Task required to initialize                
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Initializing with task ID %d and priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 				        
                 TISM_WatchdogData.PingMessageCounter=0;
                 for(int counter=0; counter<MAX_TASKS; counter++)
@@ -51,7 +61,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                 TISM_WatchdogData.NextPingRound=0;
 				        break;
 	  case RUN:   // Do the work						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Task %d doing work at %llu with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
              
                 // First check for incoming messages.
                 int MessageCounter=0;
@@ -60,7 +70,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
@@ -69,7 +79,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                                     TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                     break;
                     case TISM_TEST: // This is mostly used for debugging purposes. Print a text to STDOUT.
-                                    if (ThisTask.TaskDebug) fprintf(STDOUT,"%s: Test message received from TaskID %d (%s).\n", ThisTask.TaskName, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                    if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Test message received from TaskID %d (%s).", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
                                     break;
                     case TISM_ECHO: // Echo reply to our ping request
                                     // Is this the reply to the last message we've sent to this task?
@@ -78,17 +88,17 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                                       // Correct response received; calculate the delay. Did the response exceed the maximum?
                                       TISM_WatchdogData.ResponseDelay=time_us_64()-TISM_WatchdogData.TimeRequestSent[MessageToProcess->SenderTaskID];
 
-                                      if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Valid ECHO response received from %d (%s), delay %ld.\n", ThisTask.TaskName, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, TISM_WatchdogData.ResponseDelay);
+                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Valid ECHO response received from %d (%s), delay %ld.", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, TISM_WatchdogData.ResponseDelay);
 
                                       if(TISM_WatchdogData.ResponseDelay>WATCHDOG_TASK_TIMEOUT)
                                       {
                                         // For now, only generate a warning.
-                                        fprintf(STDERR,"%s: Warning - ECHO response on PING request from %d (%s) exceeded maximum delay (%d).\n", ThisTask.TaskName, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, WATCHDOG_TASK_TIMEOUT);
+                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "ECHO response on PING request from %d (%s) exceeded maximum delay (%d).", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, WATCHDOG_TASK_TIMEOUT);
                                       }
                                     }
                                     else
                                     {
-                                      if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Invalid ECHO response received on PING request from %d (%s); expected %ld, received %ld.\n", ThisTask.TaskName, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, TISM_WatchdogData.DataRequestSent[MessageToProcess->SenderTaskID], MessageToProcess->Message);
+                                      if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Invalid ECHO response received on PING request from %d (%s); expected %ld, received %ld.", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, TISM_WatchdogData.DataRequestSent[MessageToProcess->SenderTaskID], MessageToProcess->Message);
                                     }
                                     break;
                     default:        // Unknown message type - ignore.
@@ -110,7 +120,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                       // Send the PING message; store the time of sending and message, so we can check when we get a reply.
                       TISM_PostmanWriteMessage(ThisTask,MessageCounter,TISM_PING,TISM_WatchdogData.PingMessageCounter,0);
 
-                      if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Sent PING request to %d.\n", ThisTask.TaskName, MessageCounter);
+                      if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Sent PING request to %d.", MessageCounter);
   
                       TISM_WatchdogData.TimeRequestSent[MessageCounter]=time_us_64();
                       TISM_WatchdogData.DataRequestSent[MessageCounter]=TISM_WatchdogData.PingMessageCounter;
@@ -124,7 +134,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                 }
 				        break;
 	  case STOP:  // Task required to stop
-		            if (ThisTask.TaskDebug) fprintf(STDOUT, "%s: Stopping.\n", ThisTask.TaskName);
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		        
 				        // Tasks for stopping
 			          
@@ -134,6 +144,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
   }
 		
   // All done.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s: Run completed.\n", ThisTask.TaskName);
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
+
   return (OK);
 }
