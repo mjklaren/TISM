@@ -32,7 +32,7 @@ void StartCore2()
 void main(void)
 {
   // Initialize the TISM system.
-  System.SystemDebug=DEBUG_HIGH;     // Always set the debug-level before init. Use with caution!
+  System.SystemDebug=DEBUG_NONE;     // Always set the debug-level before init. Use with caution!
   TISM_InitializeSystem();
  
   // Register the processes that do the actual work. When registering tasks the TaskName and Priority MUST be provided. 
@@ -51,10 +51,10 @@ void main(void)
   //   System.Task[TaskCounter].TaskDebug=DEBUG_HIGH;
 
   // Set debug-levels of individual tasks. Use with caution!
-  System.Task[TISM_GetTaskID("ExampleTask1")].TaskDebug=DEBUG_HIGH;
-  System.Task[TISM_GetTaskID("ExampleTask2")].TaskDebug=DEBUG_HIGH;
-  System.Task[TISM_GetTaskID("ExampleTask3")].TaskDebug=DEBUG_HIGH;
-  System.Task[TISM_GetTaskID("ExampleTask4")].TaskDebug=DEBUG_HIGH;
+  System.Task[TISM_GetTaskID("ExampleTask1")].TaskDebug=DEBUG_NONE;
+  System.Task[TISM_GetTaskID("ExampleTask2")].TaskDebug=DEBUG_NONE;
+  System.Task[TISM_GetTaskID("ExampleTask3")].TaskDebug=DEBUG_NONE;
+  System.Task[TISM_GetTaskID("ExampleTask4")].TaskDebug=DEBUG_NONE;
   
   // Start up the 2nd core and fire up a 2nd TISM_Scheduler.
   multicore_launch_core1(StartCore2);
