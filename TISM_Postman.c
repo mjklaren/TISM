@@ -172,7 +172,7 @@ uint8_t TISM_Postman (TISM_Task ThisTask)
                     {
                       // Failure in delivery - buffer full? Give warning.
                       // Don't use the system logger - doesn't make sense to use it when there are issues with circulair buffers.
-                      fprintf(STDERR, "%s (ID %d) %llu ERROR: Message '%ld' type %d from TaskID %d to %d could not be delivered.", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->RecipientTaskID);
+                      fprintf(STDERR, "%llu %s (ID %d) ERROR: Message '%ld' type %d from TaskID %d to %d could not be delivered.", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->RecipientTaskID);
                     
                       // Prevent a memory leak; when a message is sent to the EventLogger, free the claimed memory.
                       if(MessageToProcess->RecipientTaskID==System.TISM_EventLoggerTaskID && (MessageToProcess->MessageType==TISM_LOG_EVENT_NOTIFY || MessageToProcess->MessageType==TISM_LOG_EVENT_ERROR))

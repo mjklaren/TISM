@@ -56,21 +56,21 @@ bool TISM_EventLoggerLogEvent (TISM_Task ThisTask, uint8_t LogEntryType, const c
 */
 uint8_t TISM_EventLogger (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s (ID %d) %llu: Run starting.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64());
+  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%llu %s (ID %d): Run starting.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID);
   
   switch(ThisTask.TaskState)   
   {
     case INIT:  // Activities to initialize this task (e.g. initialize ports or peripherals).
                 // Write the first log entry
-                fprintf(STDOUT, "%s (ID %d) %llu: Logging started.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64());
+                fprintf(STDOUT, "%llu %s (ID %d): Logging started.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID);
 
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%s (ID %d) %llu: Initializing with priority %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) fprintf(STDOUT, "%llu %s (ID %d): Initializing with priority %d.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
 				        
                 // As the EventLogger only responds to events, go to sleep.
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s (ID %d) %llu: Doing work with priority %d on core %d.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%llu %s (ID %d): Doing work with priority %d on core %d.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
@@ -79,7 +79,7 @@ uint8_t TISM_EventLogger (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%s (ID %d) %llu: Message '%ld' type %d from TaskID %d (%s) received.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64(), MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%llu %s (ID %d): Message '%ld' type %d from TaskID %d (%s) received.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
@@ -88,11 +88,11 @@ uint8_t TISM_EventLogger (TISM_Task ThisTask)
                                                 TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                                 break;
                     case TISM_LOG_EVENT_NOTIFY: // Log event message; write the message to STDOUT.
-                                                fprintf(STDOUT, "%s (ID %d) %llu: %s\n", System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, MessageToProcess->MessageTimestamp, (char *)MessageToProcess->Message);
+                                                fprintf(STDOUT, "%llu %s (ID %d): %s\n", MessageToProcess->MessageTimestamp, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, (char *)MessageToProcess->Message);
                                                 free((char *)MessageToProcess->Message); 
                                                 break;
                     case TISM_LOG_EVENT_ERROR:  // Log error message; write the message to STDERR.
-                                                fprintf(STDERR, "%s (ID %d) %llu ERROR: %s\n", System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, MessageToProcess->MessageTimestamp, (char *)MessageToProcess->Message);
+                                                fprintf(STDERR, "%llu %s (ID %d) ERROR: %s\n", MessageToProcess->MessageTimestamp, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, (char *)MessageToProcess->Message);
                                                 free((char *)MessageToProcess->Message); 
                                                 break;
                     default:                    // Unknown message type - ignore.
@@ -107,7 +107,7 @@ uint8_t TISM_EventLogger (TISM_Task ThisTask)
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case STOP:  // Task required to stop this task, including the last log entry.
-                fprintf(STDOUT, "%s (ID %d) %llu: Logging stopped.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64());
+                fprintf(STDOUT, "%llu %s (ID %d): Logging stopped.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID);
 
                 // Set the task state to DOWN. 
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
@@ -115,7 +115,7 @@ uint8_t TISM_EventLogger (TISM_Task ThisTask)
   }
 		
   // Run completed.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%s (ID %d) %llu: Run completed.\n", ThisTask.TaskName, ThisTask.TaskID, time_us_64());
+  if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%llu %s (ID %d): Run completed.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID);
 
   return (OK);
 }
