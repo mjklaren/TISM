@@ -1,4 +1,5 @@
 /*
+  
   TISM_Scheduler.c
   ================
   The scheduler of the TISM-system (non-preemptive/cooperative multitasking).
@@ -43,60 +44,63 @@
 
 /*
   Description
-  Force the run of the process pointed to by the RunPointer in the global System struct for the specified core.
-  No prior checks. To be used in single-core operation (INIT and STOP).
-
-  Parameters:
-  int ThisCoreID          - ID of the current core we're trying to run a task for.
-  
-  Return value:
-  ERR_RUNNING_TASK        - Task returned an error when executing.
-  OK                      - Succes; task executed or already executed by other core (='collision')
-*/
-uint8_t TISM_SchedulerRunTaskUnconditionally(uint8_t ThisCoreID)
-{
-   // Update the most relevant information in the task struct to be able to pass it as the parameter.
-  System.Task[System.RunPointer[ThisCoreID]].OutboundMessageQueue=&(OutboundMessageQueue[ThisCoreID]);
-  System.Task[System.RunPointer[ThisCoreID]].RunningOnCoreID=ThisCoreID;
-
-  // Run the task the RunPointer is referring to.
-  if((*System.Task[System.RunPointer[ThisCoreID]].TaskFunction)((System.Task[System.RunPointer[ThisCoreID]])))
-    return(ERR_RUNNING_TASK);
-  return(OK);
-}
-
-
-/*
-  Description
   Run the process pointed to by the RunPointer in the global System struct for the specified core. If the system state
-  changes to anything else than "RUN" execution of the tasks is skipped.
+  changes to anything else than "RUN" execution of the tasks is skipped. When not in single-core operation, use 
+  CorePointers and a mutex to check which tasks are running (or about to) to prevent conflicts between cores.
 
   Parameters:
   int ThisCoreID          - ID of the current core we're trying to run a task for.
+  bool Forced             - When 'true' run the task without cheching with the other core.
   
   Return value:
   ERR_RUNNING_TASK        - Task returned an error when executing.
-  OK                      - Succes; task executed or already executed by other core (='collision')
+  OK                      - Succes; task executed or already being executed by other core.
 */
-uint8_t TISM_SchedulerRunTask(uint8_t ThisCoreID)
+uint8_t TISM_SchedulerRunTask(uint8_t ThisCoreID, bool Forced)
 {
-  // Update the most relevant information in the task struct to be able to pass it as the parameter.
-  System.Task[System.RunPointer[ThisCoreID]].OutboundMessageQueue=&(OutboundMessageQueue[ThisCoreID]);
+  // Update the most relevant information in the task struct.
+  System.Task[System.RunPointer[ThisCoreID]].OutboundMessageQueue=System.OutboundMessageQueue[ThisCoreID];
   System.Task[System.RunPointer[ThisCoreID]].RunningOnCoreID=ThisCoreID;
 
-  // Check if the other core is running the same process; wait if this is the case. Add variable wait time to prevent lockups.
-  uint8_t CurrentRunPointer=System.RunPointer[ThisCoreID];
-  while(System.RunPointer[CORE0]==System.RunPointer[CORE1])
+#ifndef TISM_DISABLE_DUALCORE
+  if(!Forced)
   {
-    System.RunPointer[ThisCoreID]=255;
-    busy_wait_us(5+(ThisCoreID*2));
-    System.RunPointer[ThisCoreID]=CurrentRunPointer;
+    mutex_enter_blocking(&System.RunningTaskMutex);                // Try to obtain the mutex, to prevent multiple cores running the same task.
+    System.CorePointer[ThisCoreID]=System.RunPointer[ThisCoreID];  // Copy the runpointer to the core-pointer; the register of actually running tasks.
+    if(System.CorePointer[CORE0]==System.CorePointer[CORE1])       // Attempting to run a task already running? Then exit.
+    {
+      System.CorePointer[ThisCoreID]=0;                            // Reset the CorePointer; we're not running a task anymore.
+      mutex_exit(&System.RunningTaskMutex);                        // Release the mutex.
+      return(OK);
+    }
+    mutex_exit(&System.RunningTaskMutex);                          // Release the mutex.
   }
-  
-  // Run the task the RunPointer is referring to. Check if we're still in RUN-state and the TaskWakeUpTimer hasn't changed in the meantime (task running on other core).
-  if((System.State==RUN) && System.Task[System.RunPointer[ThisCoreID]].TaskWakeUpTimer<=time_us_64())
+#endif
+
+// Used for debugging
+#ifdef RUN_STEP_BY_STEP
+    fprintf(STDOUT,"DEBUG (system state %d): starting task %d (task state %d) on core %d.\n", System.State,System.RunPointer[ThisCoreID],System.Task[System.RunPointer[ThisCoreID]].TaskState,ThisCoreID);
+    fflush(STDOUT);
+    sleep_ms(RUN_STEP_BY_STEP_DELAY);
+#endif
+
+    // Run the task the RunPointer is referring to. 
     if((*System.Task[System.RunPointer[ThisCoreID]].TaskFunction)((System.Task[System.RunPointer[ThisCoreID]])))
       return(ERR_RUNNING_TASK);
+
+// Used for debugging
+#ifdef RUN_STEP_BY_STEP
+    fprintf(STDOUT,"DEBUG (system state %d): task %d on core %d (task state %d) completed succesfully.\n",System.State,System.RunPointer[ThisCoreID],ThisCoreID,System.Task[System.RunPointer[ThisCoreID]].TaskState);
+    fflush(STDOUT);
+    sleep_ms(RUN_STEP_BY_STEP_DELAY);
+#endif
+
+#ifndef TISM_DISABLE_DUALCORE
+    // Use the mutex again to prevent issues when both cores want to work with CorePointer simultanuously (thread safety).
+    mutex_enter_blocking(&System.RunningTaskMutex);
+    System.CorePointer[ThisCoreID]=0;                              // Reset the CorePointer; we're not running a task anymore.
+    mutex_exit(&System.RunningTaskMutex);
+#endif
   return(OK);
 }
 
@@ -117,7 +121,11 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
 {
   // The scheduler runs through 3 states; INIT, RUN and STOP.
   uint8_t PreviousRunPointer;
+
+#ifndef TISM_DISABLE_PRIORITIES
   uint32_t RunPriority;
+#endif
+
   TISM_Task ThisTask;         // Dummy Task struct so we can use the EventLogger.
   while (System.State>DOWN)
   {
@@ -135,21 +143,31 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                    ThisTask.TaskSleeping=true;
                    sprintf(ThisTask.TaskName, "TISM_Scheduler #%d", ThisCoreID);
                    ThisTask.InboundMessageQueue=NULL;
-                   ThisTask.OutboundMessageQueue=&(OutboundMessageQueue[ThisCoreID]);
-                   ThisTask.TaskWakeUpTimer=0; 
+                   ThisTask.OutboundMessageQueue=System.OutboundMessageQueue[ThisCoreID];
+
+#ifndef TISM_DISABLE_SCHEDULER                   
+                   ThisTask.TaskWakeUpTimer=0;
+#endif                   
 
                    // We only run INIT on CORE0.                
                    if(ThisCoreID==CORE0)
                    {
-                     if (System.SystemDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #0 Initializing tasks.");
+                     if (System.SystemDebug) TISM_EventLoggerLogEvent(ThisTask,TISM_LOG_EVENT_NOTIFY,"Core #0 Initializing tasks.");
+
+#ifndef TISM_DISABLE_DUALCORE
+                     // Initialize mutex for multicore operation.
+                     mutex_init(&System.RunningTaskMutex);
+                     System.CorePointer[CORE0]=0;
+                     System.CorePointer[CORE1]=0;
+#endif
 
                      // Set the state of tasks to INIT and Let the tasks for this core initialize themselves.
                      for(uint8_t TaskCounter=1;TaskCounter<System.NumberOfTasks;TaskCounter++)       // Task ID 0 is the scheduler itself.
                      {
                        System.RunPointer[CORE0]=TaskCounter;
                        System.Task[TaskCounter].TaskState=INIT;
-                       System.Task[TaskCounter].OutboundMessageQueue=&(OutboundMessageQueue[CORE0]);
-                       if(TISM_SchedulerRunTaskUnconditionally(CORE0)!=OK)
+                       System.Task[TaskCounter].OutboundMessageQueue=System.OutboundMessageQueue[CORE0];
+                       if(TISM_SchedulerRunTask(CORE0, true)!=OK)
                        {
                          // We've run into an error.
                          System.State=STOP;
@@ -164,11 +182,11 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                      
                      // Attempt to start Postmaster, Taskmanager and EventLogger to process any messages. Do not check for return values. 
                      System.RunPointer[CORE0]=System.TISM_PostmanTaskID;
-                     TISM_SchedulerRunTaskUnconditionally(CORE0);
+                     TISM_SchedulerRunTask(CORE0, true);
                      System.RunPointer[CORE0]=System.TISM_TaskManagerTaskID;
-                     TISM_SchedulerRunTaskUnconditionally(CORE0);       
+                     TISM_SchedulerRunTask(CORE0, true);
                      System.RunPointer[CORE0]=System.TISM_EventLoggerTaskID;
-                     TISM_SchedulerRunTaskUnconditionally(CORE0);
+                     TISM_SchedulerRunTask(CORE0, true);
 
                      // No errors? Schedule the start of all tasks and move the system to RUN state.
                      if(System.State==INIT)
@@ -188,9 +206,11 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                                                  break;                            
                          }
                        }
-                      
+                       
                        if (System.SystemDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: %d prio high, %d prio normal and %d other tasks.", ThisCoreID, PriorityHigh, PriorityNormal, PriorityOther);
 
+#ifndef TISM_DISABLE_SCHEDULER
+                       // Give all tasks a first start timestamp; to prevent all tasks starting at the same time.
                        // Calculate the offsite by dividing the available time by the number of tasks.
                        uint32_t PriorityHighOffset=(PriorityHigh>0?round(PRIORITY_HIGH/PriorityHigh):0);
                        uint32_t PriorityNormalOffset=(PriorityNormal>0?round(PRIORITY_NORMAL/PriorityNormal):0);
@@ -216,14 +236,23 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                          }
 
                          if (System.SystemDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Task %d (%s; priority %d) will start at %llu.", ThisCoreID, counter, System.Task[counter].TaskName, System.Task[counter].TaskPriority, System.Task[counter].TaskWakeUpTimer);
+
                        }
+#endif
+
+                       // Set system state to RUN.
                        System.State=RUN;
+
                        if (System.SystemDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: %d task(s) initialized.", ThisCoreID, System.NumberOfTasks);
 
-                       // All tasks initialized and ready to go! Set the SYSTEM_READY_PORT to HIGH.
-                       gpio_put(SYSTEM_READY_PORT, 1);
+                       // All tasks initialized and ready to go! 
 
+#ifdef SYSTEM_READY_PORT                    
+                       // Set the SYSTEM_READY_PORT to HIGH.
+                       gpio_put(SYSTEM_READY_PORT, 1);
                        if (System.SystemDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Set SYSTEM_READY_PORT %d to high.", ThisCoreID, SYSTEM_READY_PORT);
+#endif
+
                      }
                      else  
                      {
@@ -233,11 +262,11 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
 
                      // Attempt to start Postmaster, Taskmanager and EventLogger to process any messages. Do not check for return values. 
                      System.RunPointer[CORE0]=System.TISM_PostmanTaskID;
-                     TISM_SchedulerRunTaskUnconditionally(CORE0);
+                     TISM_SchedulerRunTask(CORE0, true);
                      System.RunPointer[CORE0]=System.TISM_TaskManagerTaskID;
-                     TISM_SchedulerRunTaskUnconditionally(CORE0);       
+                     TISM_SchedulerRunTask(CORE0, true);
                      System.RunPointer[CORE0]=System.TISM_EventLoggerTaskID;
-                     TISM_SchedulerRunTaskUnconditionally(CORE0);
+                     TISM_SchedulerRunTask(CORE0, true);
                    }
                    else
                    {
@@ -248,18 +277,22 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                        sleep_ms(500);
                      }
                    }
-                   
+                  
+#ifndef  TISM_DISABLE_PRIORITIES            
                    // We start the first run with PRIORITY_HIGH tasks. 
                    RunPriority=PRIORITY_HIGH;
+#endif
+
                    break;
         case RUN: // The actual loop that runs tasks.
                   if(System.SystemDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Starting run loop, %s through tasklist.", ThisCoreID, (System.RunPointerDirection[ThisCoreID]==QUEUE_RUN_ASCENDING?"ascending":"descending"));
 
                   uint8_t LastProcessInRun, RunPointerBackup, ThisTaskID;
                   uint64_t RunTimestamp;
+                  bool ProcessMessages;
                   while (System.State==RUN)
                   {
-                    // Run through all the tasks; check which need to start. 
+                    // Run through all the tasks; check which task needs to start. 
                     // What is the criteria to stop a run? Do we ascend or descend? Where do we start in the queue?
                     // We check in each run in case tasks are created after initialization (and the queue grows).
                     
@@ -267,32 +300,38 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                     System.RunPointer[ThisCoreID]=(System.RunPointerDirection[ThisCoreID]==QUEUE_RUN_ASCENDING?1:(System.NumberOfTasks-1));    // Task ID 0 is the scheduler itself.                    
                     do
                     {
-                      // Are both cores looking at different processes to run?
                       // Is the tasks allowed to run, considering its priority?
                       // Is the task specified by RunPointer not sleeping and is the wake-up timer for this task expired?
-                      RunTimestamp=time_us_64();   
-                      if((System.RunPointer[CORE0]!=System.RunPointer[CORE1]) &&
+                      RunTimestamp=time_us_64();
+                      if(
+             
+#ifndef TISM_DISABLE_PRIORITIES
                          (System.Task[System.RunPointer[ThisCoreID]].TaskPriority<=RunPriority) &&
-                         (!System.Task[System.RunPointer[ThisCoreID]].TaskSleeping) &&
-                         (System.Task[System.RunPointer[ThisCoreID]].TaskWakeUpTimer<=RunTimestamp))
+#endif
+
+#ifndef TISM_DISABLE_SCHEDULER 
+                         (System.Task[System.RunPointer[ThisCoreID]].TaskWakeUpTimer<=RunTimestamp) &&
+#endif
+
+                         (!System.Task[System.RunPointer[ThisCoreID]].TaskSleeping))
                       { 
                         if(System.State==RUN && System.SystemDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Starting Task ID %d (%s).", ThisCoreID, System.RunPointer[ThisCoreID], System.Task[System.RunPointer[ThisCoreID]].TaskName);
-                                   
-                        if(TISM_SchedulerRunTask(ThisCoreID)==OK)
+                        
+                        if(TISM_SchedulerRunTask(ThisCoreID,false)==OK)
                         {
                           // Is the system still in RUN-state?
                           if(System.State==RUN)
                           {
                             // Did the task generate any messages in the queue for this core? 
                             // If so, start the Postman and Taskmanager tasks (securely),
-                            if(TISM_CircularBufferMessagesWaiting(&OutboundMessageQueue[ThisCoreID])>0)
+                            if(TISM_PostmanMessagesWaiting(System.OutboundMessageQueue[ThisCoreID])>0)
                             {
                               // Messages waiting; start Postman and Taskmanager tasks. No checking for return values.
                               PreviousRunPointer=System.RunPointer[ThisCoreID];
                               System.RunPointer[ThisCoreID]=System.TISM_PostmanTaskID;
-                              TISM_SchedulerRunTask(ThisCoreID);
+                              TISM_SchedulerRunTask(ThisCoreID, false);
                               System.RunPointer[ThisCoreID]=System.TISM_TaskManagerTaskID;
-                              TISM_SchedulerRunTask(ThisCoreID);
+                              TISM_SchedulerRunTask(ThisCoreID, false);
 
                               // Restore the RunPointer to it's original value so we can continue the cycle.
                               System.RunPointer[ThisCoreID]=PreviousRunPointer;
@@ -301,7 +340,8 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                             // Task ran succesfully; calculate the next wake-up time based on the task's priority, but only when needed.
                             // Also update the timestamp we're comparing with.
                             if(System.SystemDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Task ID %d (%s) completed.", ThisCoreID, System.RunPointer[ThisCoreID], System.Task[System.RunPointer[ThisCoreID]].TaskName);
-                          
+
+#ifndef TISM_DISABLE_SCHEDULER                        
                             // If the task hasn´t set a new value for TaskWakeUpTimer, set one based on the task's priority.
                             RunTimestamp=time_us_64();
                             while (System.Task[System.RunPointer[ThisCoreID]].TaskWakeUpTimer<RunTimestamp)
@@ -311,30 +351,39 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                             }
                           
                             if(System.SystemDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Task ID %d (%s) wants to wake up at %llu (now running on core %d).", ThisCoreID, System.RunPointer[ThisCoreID], System.Task[System.RunPointer[ThisCoreID]].TaskName, System.Task[System.RunPointer[ThisCoreID]].TaskWakeUpTimer, ThisCoreID);
+#endif
+
                           }
                         }
                         else
                         {
-                          // Task execution returened an error. Stop the System.
+                          // Task execution returned an error. Stop the System.
                           TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Core #%d: task %s returned a fatal error. Stopping.", ThisCoreID, System.Task[System.RunPointer[ThisCoreID]].TaskName);
                           System.State=STOP;
                           break;
                         }
                       }
 
-                      // Did we receive any interrupts? Check the inbound circular buffer and start the IRQ handler when needed.
-                      if(TISM_CircularBufferMessagesWaiting(&IRQHandlerInboundQueue)>0)
+                      // Check the inbound circular buffers (IRQHandler). We do this continuously.
+                      ProcessMessages=false;
+                      if(TISM_PostmanMessagesWaiting(System.IRQHandlerInboundQueue)>0) 
                       {
-                        // IRQ messages waiting; IRQ Hander, Postman and Taskmanager MUST run. No checking for return values.
                         PreviousRunPointer=System.RunPointer[ThisCoreID];
                         System.RunPointer[ThisCoreID]=System.TISM_IRQHandlerTaskID;
-                        TISM_SchedulerRunTask(ThisCoreID);
-                        System.RunPointer[ThisCoreID]=System.TISM_PostmanTaskID;
-                        TISM_SchedulerRunTask(ThisCoreID);
-                        System.RunPointer[ThisCoreID]=System.TISM_TaskManagerTaskID;
-                        TISM_SchedulerRunTask(ThisCoreID);
+                        TISM_SchedulerRunTask(ThisCoreID,false);
+                        System.RunPointer[ThisCoreID]=PreviousRunPointer;
+                        ProcessMessages=true;                                                
+                      }
 
-                        // Restore the RunPointer to it's original value so we can continue the cycle.
+                      // Were any messages generated by IRQHandler?
+                      if(ProcessMessages)
+                      {
+                        System.RunPointer[ThisCoreID]=System.TISM_IRQHandlerTaskID;
+                        TISM_SchedulerRunTask(ThisCoreID,false);
+                        System.RunPointer[ThisCoreID]=System.TISM_PostmanTaskID;
+                        TISM_SchedulerRunTask(ThisCoreID,false);
+                        System.RunPointer[ThisCoreID]=System.TISM_TaskManagerTaskID;
+                        TISM_SchedulerRunTask(ThisCoreID,false);
                         System.RunPointer[ThisCoreID]=PreviousRunPointer;
                       }
                       
@@ -344,6 +393,7 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                     }
                     while ((System.RunPointerDirection[ThisCoreID]!=QUEUE_RUN_ASCENDING?(System.RunPointer[ThisCoreID]>=LastProcessInRun):(System.RunPointer[ThisCoreID]<=LastProcessInRun)) && (System.State==RUN));
 
+#ifndef TISM_DISABLE_PRIORITIES
                     // Run completed; set priority level for the next run.
                     switch(RunPriority)
                     {
@@ -353,6 +403,8 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                                              break;
                       default              : RunPriority=PRIORITY_HIGH;
                     }
+#endif
+
                   }
 
                   // Loop has ended; most likely a state switch.
@@ -360,7 +412,7 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
 
                   // Run Postman to make sure log entries are delivered to the EventLogger.
                   System.RunPointer[ThisCoreID]=System.TISM_PostmanTaskID;
-                  TISM_SchedulerRunTask(ThisCoreID);
+                  TISM_SchedulerRunTask(ThisCoreID, false);
                   break;
         default:  // STOP or illegal state. Execute all tasks once, requesting to stop.
                   System.State=STOP;  // Just to be sure.
@@ -368,12 +420,18 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                   // We only run this on Core0.
                   if(ThisCoreID==CORE0)
                   {
-                    // All tasks about to stop. Set the SYSTEM_READY_PORT to LOW.
+                    // All tasks about to stop. 
+
+#ifdef SYSTEM_READY_PORT    
+                    // Set the SYSTEM_READY_PORT to LOW.
                     gpio_put(SYSTEM_READY_PORT, 0);
+#endif                  
                     
                     if (System.SystemDebug) 
                     {
+#ifdef SYSTEM_READY_PORT    
                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Set SYSTEM_READY_PORT %d to low.", ThisCoreID, SYSTEM_READY_PORT);
+#endif                  
                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Stopping after state %d.", ThisCoreID, System.State);
                     }
 
@@ -386,7 +444,7 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                       {
                         System.RunPointer[CORE0]=TaskCounter;
                         System.Task[TaskCounter].TaskState=STOP;
-                        ReturnValue=TISM_SchedulerRunTaskUnconditionally(CORE0);
+                        ReturnValue=TISM_SchedulerRunTask(CORE0, true);
 
                         if (System.SystemDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Core #%d: Task ID %d (%s) stopped with return value %d.", ThisCoreID, TaskCounter, System.Task[TaskCounter].TaskName, ReturnValue);
                       }
@@ -396,13 +454,13 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
 
                     // Run Postman and EventLogger to process last log entries, then tell it to stop.
                     System.RunPointer[ThisCoreID]=System.TISM_PostmanTaskID;
-                    TISM_SchedulerRunTaskUnconditionally(CORE0);
+                    TISM_SchedulerRunTask(CORE0, true);
                     System.Task[System.TISM_PostmanTaskID].TaskState=STOP;
-                    TISM_SchedulerRunTaskUnconditionally(CORE0);
+                    TISM_SchedulerRunTask(CORE0, true);
                     System.RunPointer[ThisCoreID]=System.TISM_EventLoggerTaskID;
-                    TISM_SchedulerRunTaskUnconditionally(CORE0);
+                    TISM_SchedulerRunTask(CORE0, true);
                     System.Task[System.TISM_EventLoggerTaskID].TaskState=STOP;
-                    TISM_SchedulerRunTaskUnconditionally(CORE0);
+                    TISM_SchedulerRunTask(CORE0, true);
                   }
                   else
                   {

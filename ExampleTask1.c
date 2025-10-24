@@ -68,17 +68,17 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
                 TISM_Message *MessageToProcess;
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderTaskID);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING:    // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                       TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                       TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                        break;
                     case EXAMPLE1GPIO: /* 
                                          Message received from the IRQhandler - the button is pressed or released. 
@@ -89,26 +89,26 @@ uint8_t ExampleTask1 (TISM_Task ThisTask)
                                          case GPIO_IRQ_EDGE_FALL: // Button is pressed.
                                                                   if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "The button is pressend!."); 
 
-                                                                  TISM_PostmanWriteMessage(ThisTask,ExampleTask1Data.ExampleTask2ID,MessageToProcess->Message,0,0);
-                                                                  TISM_PostmanWriteMessage(ThisTask,ExampleTask1Data.ExampleTask3ID,MessageToProcess->Message,0,0);
+                                                                  TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,ExampleTask1Data.ExampleTask2ID,MessageToProcess->Message,0,0);
+                                                                  TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,ExampleTask1Data.ExampleTask3ID,MessageToProcess->Message,0,0);
                                          
                                                                   break;
                                          case GPIO_IRQ_EDGE_RISE: // Button is released.
                                                                   if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "The button is released!");
 
-                                                                  TISM_PostmanWriteMessage(ThisTask,ExampleTask1Data.ExampleTask3ID,MessageToProcess->Message,0,0);                                                                  
+                                                                  TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,ExampleTask1Data.ExampleTask3ID,MessageToProcess->Message,0,0);                                                                  
                                                                   break;
                                        }
 
                                        // Increase the counter - will wrap around after 255 events.
                                        ExampleTask1Data.ButtonPressCounter++;
-                                       if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of events: %d", ExampleTask1Data.ButtonPressCounter);
+                                       if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of events: %d", ExampleTask1Data.ButtonPressCounter);
                                        
                                        break;
                     default:           // Unknown message type - ignore.
                                        break;
                   }
-                  TISM_PostmanDeleteMessage(ThisTask);
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
                 }
 

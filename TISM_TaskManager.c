@@ -1,4 +1,5 @@
 /*
+  
   TISM_TaskManager.c
   ==================
   Library with functions to manipulate task properties and system states, when requested via messages.
@@ -68,7 +69,7 @@ uint8_t TISM_TaskManagerSetTaskAttribute(struct TISM_Task ThisTask, uint8_t Targ
                                        if(TISM_IsSystemTask(ThisTask.TaskID))
                                        {
                                          // Compose a message to Task Manager to adjust the attributes.
-                                         TISM_PostmanWriteMessage(ThisTask,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
+                                         TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
                                        }
                                        else
                                        {
@@ -80,7 +81,7 @@ uint8_t TISM_TaskManagerSetTaskAttribute(struct TISM_Task ThisTask, uint8_t Targ
                                      else
                                      {
                                        // Target is not a system task. Forward the requested operation.
-                                       TISM_PostmanWriteMessage(ThisTask,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
+                                       TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
                                      }
                                      break;
       case TISM_DEDICATE_TO_TASK   : // Not allowed for system tasks
@@ -92,13 +93,13 @@ uint8_t TISM_TaskManagerSetTaskAttribute(struct TISM_Task ThisTask, uint8_t Targ
                                      else
                                      {
                                        // Compose a message to Task Manager to adjust the attributes.
-                                       TISM_PostmanWriteMessage(ThisTask,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
+                                       TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
                                      }
                                      break;
       case TISM_WAKE_ALL_TASKS     :
       case TISM_SET_TASK_STATE     :
       case TISM_SET_TASK_DEBUG     : // No checking here.
-                                     TISM_PostmanWriteMessage(ThisTask,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
+                                     TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_TaskManagerTaskID,AttributeToChange,Setting,TargetTaskID);
                                      break;
       default                      : // Unknown action requested; generate error message.
                                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Unknown attribute change (%d) requested.", AttributeToChange);
@@ -162,7 +163,7 @@ uint8_t TISM_TaskManagerSetMyTaskAttribute(struct TISM_Task ThisTask, uint8_t At
 */
 uint8_t TISM_TaskManagerSetSystemState(struct TISM_Task ThisTask, uint8_t SystemState)
 {
-  return(TISM_PostmanWriteMessage(ThisTask,System.TISM_TaskManagerTaskID,TISM_SET_SYS_STATE,SystemState,0));
+  return(TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_TaskManagerTaskID,TISM_SET_SYS_STATE,SystemState,0));
 }
 
 
@@ -187,7 +188,7 @@ uint8_t TISM_TaskManager (TISM_Task ThisTask)
     case INIT:  // Task required to initialize                
                 if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 
-                // Bring tasks TaskManager, Postman, IRQHandler and Watchdog to sleep.
+                // Bring tasks TaskManager, Postman and IRQHandler to sleep.
                 System.Task[System.TISM_TaskManagerTaskID].TaskSleeping=true;
                 System.Task[System.TISM_PostmanTaskID].TaskSleeping=true;
                 System.Task[System.TISM_IRQHandlerTaskID].TaskSleeping=true;
@@ -203,18 +204,18 @@ uint8_t TISM_TaskManager (TISM_Task ThisTask)
                 */
                 int MessageCounter=0;
                 TISM_Message *MessageToProcess;
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
                   // We received a message; figure out what we need to do.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING:                // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                                   TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                                   TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                                    break;
                     case TISM_SET_TASK_SLEEP:      // Change the sleep state of the specified task.
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_SLEEP) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (%s).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_SLEEP) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (HostID %d).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    if(MessageToProcess->Message==0)
                                                    {
@@ -222,19 +223,27 @@ uint8_t TISM_TaskManager (TISM_Task ThisTask)
                                                      if(System.Task[(uint8_t)MessageToProcess->Specification].TaskSleeping==true)
                                                      {
                                                        System.Task[(uint8_t)MessageToProcess->Specification].TaskSleeping=false;
+
+#ifndef TISM_DISABLE_SCHEDULER
                                                        System.Task[(uint8_t)MessageToProcess->Specification].TaskWakeUpTimer=time_us_64();
+#endif
+
                                                      }
                                                    }
                                                    else
                                                      System.Task[(uint8_t)MessageToProcess->Specification].TaskSleeping=true;
                                                    break;
+
+#ifndef TISM_DISABLE_SCHEDULER
                     case TISM_SET_TASK_WAKEUPTIME: // Change the wake up time for the specified task, in "Now¨ + specified usec.                                                 
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_WAKEUP_TIME) for TargetTaskID %d (%s) with setting utime + %ld received from TaskID %d (%s).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_WAKEUP_TIME) for TargetTaskID %d (%s) with setting utime + %ld received from TaskID %d (HostID %d).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    System.Task[(uint8_t)MessageToProcess->Specification].TaskWakeUpTimer=time_us_64()+MessageToProcess->Message;
                                                    break;
+#endif
+
                     case TISM_SET_SYS_STATE:       // Change the state of the whole system (aka runlevel).
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Set system state (TISM_SET_SYS_STATE) to %d received from TaskID %d (%s).", MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Set system state (TISM_SET_SYS_STATE) to %d received from TaskID %d (HostID %d).", MessageToProcess->Message, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    System.State=(uint8_t)MessageToProcess->Message;
 
@@ -242,24 +251,26 @@ uint8_t TISM_TaskManager (TISM_Task ThisTask)
                                                  
                                                    break;
                     case TISM_SET_TASK_STATE:      // Change the state of the specified task. These can be custom values.
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_STATE) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (%s).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_STATE) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (HostID %d).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    System.Task[(uint8_t)MessageToProcess->Specification].TaskState=(uint8_t)MessageToProcess->Message;
                                                    break;
                     case TISM_SET_TASK_PRIORITY:   // Set the priority of a specific task to the specified priority level.
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_PRIORITY) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (%s).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_PRIORITY) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (HostID %d).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    System.Task[(uint8_t)MessageToProcess->Specification].TaskPriority=MessageToProcess->Message;
                                                    break;
                     case TISM_WAKE_ALL_TASKS:      // Wake all tasks.
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Wake all tasks (TISM_WAKE_ALL_TASKS) received from TaskID %d (%s).", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Wake all tasks (TISM_WAKE_ALL_TASKS) received from TaskID %d (HostID %d).", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    for(uint8_t TaskCounter=0;TaskCounter<System.NumberOfTasks;TaskCounter++)
                                                    {
                                                      // Only wake tasks that are currently sleeping; do not interfere with existing time schedules.
                                                      if(System.Task[TaskCounter].TaskSleeping==true)
                                                      {
+#ifndef TISM_DISABLE_SCHEDULER
                                                        System.Task[TaskCounter].TaskWakeUpTimer=time_us_64();
+#endif
                                                        System.Task[TaskCounter].TaskSleeping=false;
                                                      }
                                                    }
@@ -269,7 +280,7 @@ uint8_t TISM_TaskManager (TISM_Task ThisTask)
                                                    break;  
                     case TISM_DEDICATE_TO_TASK:    // Dedicate the whole system to a specific task - use with caution.
                                                    // Check first if the target task is not sleeping.
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Dedicate to task (TISM_DEDICATE_TO_TASK) requested for %d (%s) by TaskID %d (%s).", (int)MessageToProcess->Message, System.Task[(int)MessageToProcess->Message].TaskName, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Dedicate to task (TISM_DEDICATE_TO_TASK) requested for %d (%s) by TaskID %d (HostID %d).", (int)MessageToProcess->Message, System.Task[(int)MessageToProcess->Message].TaskName, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    if(!System.Task[(uint8_t)MessageToProcess->Message].TaskSleeping)
                                                    {
@@ -288,7 +299,7 @@ uint8_t TISM_TaskManager (TISM_Task ThisTask)
                                                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Task to dedicate to (%s,ID %d) is sleeping. Aborting.", System.Task[(int)MessageToProcess->Message].TaskName, (int)MessageToProcess->Message);
                                                    break;
                     case TISM_SET_TASK_DEBUG:      // Set the debug level for a task to the specified value.
-                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_DEBUG) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (%s).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "AttributeToChange %d (TISM_SET_TASK_DEBUG) for TargetTaskID %d (%s) with setting %ld received from TaskID %d (HostID %d).", MessageToProcess->MessageType, MessageToProcess->Specification, System.Task[MessageToProcess->Specification].TaskName, MessageToProcess->Message, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                                                    System.Task[(uint8_t)MessageToProcess->Specification].TaskDebug=(uint8_t)MessageToProcess->Message;
                                                    break;
@@ -297,7 +308,7 @@ uint8_t TISM_TaskManager (TISM_Task ThisTask)
                   }
 
                   // Processed the message; delete it.
-                  TISM_PostmanDeleteMessage(ThisTask);
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
                 }
                 // Go to sleep; we only wake on incoming messages (only TaskManager can do this directly).

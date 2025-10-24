@@ -1,7 +1,9 @@
 /*
+  
   TISM_Postman.c
   ==============
-  Tools for managing the postboxes (outbound and inbound queues) and delivery of messages between tasks.
+  Tools for managing the postboxes (outbound and inbound queues) and delivery of messages between tasks using circular buffers (thread safety).
+  In this set up, the head can never overtake the tail, so data is lost when data is written to a circular buffer that is full.
 
   The TISM_Postman process:
   - Each core runs an instance of TISM_Scheduler; each instance has its own outbound messaging queue (circular buffer). 
@@ -13,88 +15,350 @@
     scheduler-instance, and delivers it to the inbound queue of the specified task. 
   - As only one instance of TISM_Postman can run at a time, this process is thread-safe.
 
-  TISM_Postman uses the functions in TISM_Messaging; the definitions of messaging struct is defined in TISM_Definitions.
-  The outbound queues for the TISM_Scheduler instances are global variables; OutboundMessageQueue[CORE0] and OutboundMessageQueue[CORE1].
-  TISM_Postman provides for 4 consumer functions to easily manage messaging.
+  The definitions of messaging struct and sizes of queues are defined in TISM_Definitions.
+  TISM_Postman provides for 4 task/'consumer'-functions to easily manage messaging.
 
-  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Copyright (c) 2025 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
 
 */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "pico/stdlib.h"
 #include "TISM.h"
 
 
+
+/*========================================================================================================
+
+  Functions that allow for complete management of the circular buffers, used in the TISM messaging system.
+
+ ========================================================================================================*/
+
 /*
   Description
-  Wrapper for TISM_CircularBufferMessagesWaiting; allows tasks to easer check if a message is waiting in their inbound queue.
+  Calculate the number of messages that are waiting in the specified circular buffer.
   
   Parameters:
-  TISM_Task ThisTask - Struct containing all task related information.
+  TISM_CircularBuffer *Buffer - Pointer to circular buffer.
 
   Return value:
-  <value>            - Integer value of number of messages waiting
-  0                  - No messages waiting
+  <value>                     - Integer value of number of messages waiting
+  0                           - No messages waiting
 */
-uint16_t TISM_PostmanMessagesWaiting(TISM_Task ThisTask)
+uint16_t TISM_PostmanMessagesWaiting(TISM_CircularBuffer *Buffer)
 {
-  return(TISM_CircularBufferMessagesWaiting(ThisTask.InboundMessageQueue));
+  if(Buffer->Head!=Buffer->Tail)
+    return(Buffer->Head>Buffer->Tail?Buffer->Head-Buffer->Tail:Buffer->Size-Buffer->Tail+Buffer->Head);
+  else
+    return(0);
 }
 
 
 /*
   Description
-  Wrapper for TISM_CircularBufferWrite; allows tasks to easier write messages to the outbound queue.
+  Calculate the number of slots available in the specified buffer. As there is always one slot unused between head and tail, 
+  maximum capacity will be <Circular Buffer Size>-(number of messages waiting)-1.
 
   Parameters:
-  TISM_Task ThisTask         - Struct containing all task related information.
-  uint8_t RecipientTaskID    - TaskID of the recipient.
-  uint8_t MessageType        - Type of message (see TISM_Definitions.h).
-  uint32_t Message           - Message. Could also contain a pointer to something (e.g. text buffer).
-  uint32_t Specification     - Specification to the provided message. Could also contain a pointer to something (e.g. text buffer).
+  *TISM_CircularBuffer - Pointer to the TISM_CircularBuffer struct.
+
+  Return value:
+  uint16_t <number>    - Number of slots available
+*/
+uint16_t TISM_PostmanSlotsAvailable(TISM_CircularBuffer *Buffer)
+{
+ /* if(Buffer->Head!=Buffer->Tail)
+    return(Buffer->Size-1+(Buffer->Head>Buffer->Tail?Buffer->Head-Buffer->Tail:Buffer->Size-Buffer->Tail+Buffer->Head));
+  else
+    return(Buffer->Size-1);
+  */
+     if(Buffer->Head!=Buffer->Tail)
+     {
+        uint16_t Used=(Buffer->Head>=Buffer->Tail)?(Buffer->Head-Buffer->Tail):(Buffer->Size-Buffer->Tail+Buffer->Head);
+        return Buffer->Size-1-Used;
+    }
+    return Buffer->Size-1;
+}
+
+
+/*
+  Description: 
+  Write a message to the specified circular buffer. This function allows every element of the message (incl. sender data) to be specified.
+
+  Parameters:
+  TISM_CircularBuffer *Buffer - Pointer to the GenericCircularBuffer struct
+  uint8_t SendertHostID       - HostID of the sender (for future use).
+  uint8_t SenderTaskID        - TaskID of the sender.
+  uint8_t RecipientHostID     - HostID of the recipient (for future use).
+  uint8_t RecipientTaskID     - TaskID of the recipient.
+  uint8_t MessageType         - Type of message (see TISM_Definitions.h).
+  uint32_t Message            - Message. Could also contain a pointer to something (e.g. text buffer).
+  uint32_t Specification      - Specification to the provided message. Could also contain a pointer to something (e.g. text buffer).
+  uint64_t MessageTimestamp.  - Timestamp of the creation of this message.
 
   Return value:
   false - Buffer is full.
   true  - Succes 
 */
-bool TISM_PostmanWriteMessage(TISM_Task ThisTask, uint8_t RecipientTaskID, uint8_t MessageType, uint32_t Message, uint32_t Specification)
+
+bool TISM_PostmanWriteMessage(TISM_CircularBuffer *Buffer,uint8_t SenderHostID,uint8_t SenderTaskID,uint8_t RecipientHostID,uint8_t RecipientTaskID,uint8_t MessageType,uint32_t Message,uint32_t Specification,uint64_t MessageTimestamp)
 {
-  return(TISM_CircularBufferWriteWithTimestamp(ThisTask.OutboundMessageQueue, ThisTask.TaskID, RecipientTaskID, MessageType, Message, Specification, time_us_64()));  
+  // Is the specified buffer valid?
+  if(Buffer!=NULL && Buffer->Data!=NULL && Buffer->Size>0 && Buffer->ElementSize>0)
+  {
+    TISM_Message InData={System.HostID,SenderTaskID,System.HostID,RecipientTaskID,MessageType,Message,Specification,MessageTimestamp};
+    if(TISM_PostmanSlotsAvailable(Buffer)>0) 
+    {
+      // Copy data from input struct to buffer
+      memcpy((char*)Buffer->Data+(Buffer->Head*Buffer->ElementSize),&InData,Buffer->ElementSize);
+      Buffer->Head++;
+      if(Buffer->Head==Buffer->Size)
+        Buffer->Head=0;
+      return true;
+    } 
+    else 
+      return false; // Buffer is full
+  }
+  else
+    return false;   // Invalid buffer
 }
 
 
 /*
   Description
-  Wrapper for TISM_CircularBufferRead; allows tasks to easier read messages from the inbound queue.
+  Return the first unread message from the circular buffer by providing a pointer, do not delete (don't move tail).
+
+  Parameters:
+  *TISM_CircularBuffer - Pointer to the TISM_CircularBuffer struct.
+
+  Return value:
+  *TISM_message        - Pointer to message of type struct TISM_Message; the current message in the buffer.
+  NULL                 - No message available.
+*/
+TISM_Message *TISM_PostmanReadMessage(TISM_CircularBuffer *Buffer)
+{
+  // Is a message waiting? If not, return NULL.
+  if(Buffer->Head!=Buffer->Tail)
+    return(TISM_Message *)(Buffer->Data+(Buffer->Tail*Buffer->ElementSize));
+  else
+    return NULL;
+}
+
+
+/*
+  Description
+  'Remove' the current message from the buffer by advancing the tail +1.
+
+  Parameters:
+  *TISM_CircularBuffer - Pointer to the TISM_CircularBuffer struct.
+
+  Return value:
+  None
+*/
+void TISM_PostmanDeleteMessage(TISM_CircularBuffer *Buffer)
+{
+  // Is the tail already at the same position as the head? Then we don't have to do anything.
+  if(Buffer->Head!=Buffer->Tail)
+  {
+    Buffer->Tail++;
+    if(Buffer->Tail==Buffer->Size)
+      Buffer->Tail=0;
+  }
+}
+
+
+/*
+  Description: 
+  Create and initialize a new circular buffer. Memory is allocated according to the specified Size of the circular buffer and the ElementSize.
+
+  Parameters: 
+  uint16_t Size           - Number of elements the buffer can hold.
+  size_t ElementSize      - Size of each Data-element in bytes, depends on the data type to be stored.
+
+  Return value: 
+  TISM_CircularBuffer *   - Pointer to TISM_CircularBuffer struct (NULL on failure).
+*/
+TISM_CircularBuffer *TISM_PostmanBufferInit(uint16_t Size,uint16_t ElementSize)
+{
+  TISM_CircularBuffer *Buffer=malloc(sizeof(TISM_CircularBuffer));
+  if(Buffer!=NULL)
+  {
+    Buffer->Tail=0;
+    Buffer->Head=0;
+    Buffer->Size=Size;
+    Buffer->ElementSize=ElementSize;
+
+    // Allocate memory for the data buffer
+    Buffer->Data=malloc(Size*ElementSize);
+    if(Buffer->Data==NULL)
+    {
+      Buffer->Size=0;        // No memory allocated, buffer is 0 size.
+      Buffer->ElementSize=0;
+      free(Buffer);
+      return NULL;
+    }
+
+    // Initialize buffer memory to 0
+    memset(Buffer->Data,0,Size*ElementSize);
+  }
+  return Buffer;
+}
+
+
+/*
+  Description: 
+  Resize the databuffer part of the specified circular buffer. Delete the old one (all waiting messages are lost) and create a new buffer.
+
+  Parameters:
+  TISM_CircularBuffer *Buffer - Pointer to the GenericCircularBuffer struct 
+  uint16_t NewSize            - New number of elements the buffer must hold.
+  size_t NewElementSize       - New size of each Data-element in bytes, depends on the data type to be stored.
+
+  Return value: 
+  False                       - Failed to allocate memory
+  True                        - Success
+  */
+bool TISM_PostmanBufferResize(TISM_CircularBuffer *Buffer,uint16_t NewSize,uint16_t NewElementSize)
+{
+  Buffer->Tail=0;
+  Buffer->Head=0;
+  Buffer->Size=NewSize;
+  Buffer->ElementSize=NewElementSize;
+  free(Buffer->Data);
+  
+  // Allocate memory for the data buffer
+  Buffer->Data=malloc(NewSize*NewElementSize);
+  if(Buffer->Data==NULL)
+  {
+    Buffer->Size=0;        // No memory allocated, buffer is 0 size.
+    Buffer->ElementSize=0;
+    return false;
+  }
+
+  // Initialize buffer memory to 0
+  memset(Buffer->Data,0,NewSize*NewElementSize);
+  return true;
+}
+
+
+/*
+  Description
+  (Virtually) remove all messages by setting the tail at the same position as the head.
+
+  Parameters:
+  *TISM_CircularBuffer - Pointer to the TISM_CircularBuffer struct.
+
+  Return value:
+  None
+*/
+void TISM_PostmanClearBuffer(TISM_CircularBuffer *Buffer)           
+{
+  // 'Remove' all messages by setting the tail pointer to the same position as head. All data in the buffer is ignored.
+  Buffer->Tail=Buffer->Head;
+}
+
+
+/*
+  Description: 
+  Destroy the specified circular buffer and free memory.
+
+  Parameters: 
+  TISM_CircularBuffer *Buffer - Pointer to the TISM_CircularBuffer struct
+
+  Return value: 
+  None
+*/
+void TISM_PostmanBufferDeinit(TISM_CircularBuffer *Buffer)
+{
+  if(Buffer!=NULL) 
+  {
+    free(Buffer->Data);
+    free(Buffer);
+  }
+}
+
+
+
+
+/* ================================================================================================
+
+  Functions that provide basic messaging functionality, should be sufficient for use in most tasks.
+  
+ =================================================================================================*/
+
+/*
+  Description
+  Return the number of messages that are waiting in the InboundMessageQueue for the specified task.
+  
+  Parameters:
+  TISM_Task ThisTask          - Struct containing all information of the running task (eg. TaskID and OutboundMessageQueue).
+
+  Return value:
+  <value>                     - Integer value of number of messages waiting
+  0                           - No messages waiting
+*/
+uint16_t TISM_PostmanTaskMessagesWaiting(TISM_Task ThisTask)
+{
+  return(TISM_PostmanMessagesWaiting(ThisTask.InboundMessageQueue));
+}
+
+/*
+  Description
+  Return the first unread message from stack by providing a pointer, do not delete (don't move tail).
 
   Parameters:
   TISM_Task ThisTask - Struct containing all task related information.
 
   Return value:
   *TISM_message      - Pointer to message of type struct TISM_Message; the current message in the buffer.
+  NULL               - No message available.
 */
-struct TISM_Message *TISM_PostmanReadMessage(TISM_Task ThisTask)
+TISM_Message *TISM_PostmanTaskReadMessage(TISM_Task ThisTask)
 {
-  return(TISM_CircularBufferRead(ThisTask.InboundMessageQueue));
+  return(TISM_PostmanReadMessage(ThisTask.InboundMessageQueue));
 }
 
 
 /*
   Description
-  Wrapper for TISM_CircularBufferDelete; allows tasks to easier delete the first message from their inbound queue.
+  'Remove' the current message from the buffer by advancing the tail +1.
 
   Parameters:
   TISM_Task ThisTask - Struct containing all task related information.
 
   Return value:
-  none
+  None
 */
-void TISM_PostmanDeleteMessage(TISM_Task ThisTask)
+void TISM_PostmanTaskDeleteMessage(TISM_Task ThisTask)
 {
-  TISM_CircularBufferDelete(ThisTask.InboundMessageQueue);
+  TISM_PostmanDeleteMessage(ThisTask.InboundMessageQueue);
 }
+
+
+/*
+  Description: 
+  Write a message to the outbound message queue of the specified process.
+
+  Parameters:
+  TISM_Task ThisTask          - Struct containing all information of the running task (eg. TaskID and OutboundMessageQueue).
+  uint8_t RecipientHostID     - HostID of the recipient (for future use).
+  uint8_t RecipientTaskID     - TaskID of the recipient.
+  uint8_t MessageType         - Type of message (see TISM_Definitions.h).
+  uint32_t Message            - Message. Could also contain a pointer to something (e.g. text buffer).
+  uint32_t Specification      - Specification to the provided message. Could also contain a pointer to something (e.g. text buffer).
+
+  Return value:
+  false - Buffer is full.
+  true  - Succes 
+*/
+bool TISM_PostmanTaskWriteMessage(TISM_Task ThisTask,uint8_t RecipientHostID,uint8_t RecipientTaskID,uint8_t MessageType,uint32_t Message,uint32_t Specification)
+{
+  return(TISM_PostmanWriteMessage(ThisTask.OutboundMessageQueue,System.HostID,ThisTask.TaskID,RecipientHostID,RecipientTaskID,MessageType,Message,Specification,time_us_64()));
+}
+
 
 
 // The structure containing all data for TISM_Postman to run.
@@ -137,47 +401,55 @@ uint8_t TISM_Postman (TISM_Task ThisTask)
                 TISM_Message *MessageToProcess;	
 
                 // First check for pending messages.
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING: // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                    TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                    TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                     break;
                     default:        // Unknown message type - ignore.
                                     break;
                   }
-                  TISM_PostmanDeleteMessage(ThisTask);
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
                 }
 
-				        // Check the outbound queues for both cores for messages.
+                // Check the outbound queues for all enabled cores for messages.
+#ifndef TISM_DISABLE_DUALCORE              
                 for(uint8_t CoreCounter=0;CoreCounter<MAX_CORES;CoreCounter++)
-                {
-                  while((TISM_CircularBufferMessagesWaiting(&OutboundMessageQueue[CoreCounter])>0) && (MessageCounter<MAX_MESSAGES))
+#else
+                for(uint8_t CoreCounter=0;CoreCounter<1;CoreCounter++)
+#endif
+                {                
+                  //while((System.OutboundMessageQueue[CoreCounter]->Head!=System.OutboundMessageQueue[CoreCounter]->Tail) && (MessageCounter<MAX_MESSAGES))
+                  while(TISM_PostmanMessagesWaiting(System.OutboundMessageQueue[CoreCounter])>0 && (MessageCounter<MAX_MESSAGES))
                   {
-                    MessageToProcess=TISM_CircularBufferRead(&OutboundMessageQueue[CoreCounter]);
+                    MessageToProcess=TISM_PostmanReadMessage(System.OutboundMessageQueue[CoreCounter]);
 
-                    if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Processing message '%ld' from the queue of core %d type %d from TaskID %d (%s) to %d (%s).", MessageToProcess->Message, CoreCounter, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->RecipientTaskID, System.Task[MessageToProcess->RecipientTaskID].TaskName);
+                    // Do not log debug messages from or to EventLogger. This creates duplicate messages or even loops.
+                    if(ThisTask.TaskDebug && MessageToProcess->SenderTaskID!=System.TISM_EventLoggerTaskID && MessageToProcess->RecipientTaskID!=System.TISM_EventLoggerTaskID)
+                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Processing message '%ld' from the queue of core %d type %d from TaskID %d (HostID %d) to %d (HostID %d).", MessageToProcess->Message,CoreCounter,MessageToProcess->MessageType,MessageToProcess->SenderTaskID,MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID,MessageToProcess->RecipientHostID);
 
-                    // Write this message to the inbound queue of SenderTaskID. Check validity of the recipient ID.
-                    if((MessageToProcess->RecipientTaskID>=0) && 
-                       (MessageToProcess->RecipientTaskID<System.NumberOfTasks) &&
-                       (!TISM_CircularBufferWriteWithTimestamp (&InboundMessageQueue[MessageToProcess->RecipientTaskID], MessageToProcess->SenderTaskID, MessageToProcess->RecipientTaskID, MessageToProcess->MessageType, MessageToProcess->Message, MessageToProcess->Specification, MessageToProcess->MessageTimestamp)))
+                    // Write this message to the inbound queue of RecipientTaskID. Check validity of the recipient ID when sending to this host.
+                    if(MessageToProcess->RecipientTaskID>=System.NumberOfTasks ||
+                       !TISM_PostmanWriteMessage(System.Task[MessageToProcess->RecipientTaskID].InboundMessageQueue,System.HostID,MessageToProcess->SenderTaskID,System.HostID,MessageToProcess->RecipientTaskID,MessageToProcess->MessageType,MessageToProcess->Message,MessageToProcess->Specification,MessageToProcess->MessageTimestamp))
                     {
                       // Failure in delivery - buffer full? Give warning.
                       // Don't use the system logger - doesn't make sense to use it when there are issues with circulair buffers.
-                      fprintf(STDERR, "%llu %s (ID %d) ERROR: Message '%ld' type %d from TaskID %d to %d could not be delivered.", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->RecipientTaskID);
+                      fprintf(STDERR, "%llu %s (ID %d) ERROR: Message '%ld' type %d from TaskID %d to %d (HostID %d) could not be delivered.", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);
                     
-                      // Prevent a memory leak; when a message is sent to the EventLogger, free the claimed memory.
-                      if(MessageToProcess->RecipientTaskID==System.TISM_EventLoggerTaskID && (MessageToProcess->MessageType==TISM_LOG_EVENT_NOTIFY || MessageToProcess->MessageType==TISM_LOG_EVENT_ERROR))
+                      // Prevent a memory leak; when a message is sent to the EventLogger on this host, free the claimed memory.
+                      if(MessageToProcess->RecipientTaskID==System.TISM_EventLoggerTaskID &&
+                         MessageToProcess->RecipientHostID==System.HostID &&
+                        (MessageToProcess->MessageType==TISM_LOG_EVENT_NOTIFY || MessageToProcess->MessageType==TISM_LOG_EVENT_ERROR))
                       {
-                        // Messages from this type sent to EventHandler have claimed memory, Release it to prevent memory leaks.
+                        // Messages from this type sent to EventHandler have claimed memory, release it to prevent memory leaks.
                         fprintf(STDERR, " Attempting to free claimed memory.");
                         free((char *)MessageToProcess->Message);
                       }
@@ -185,30 +457,30 @@ uint8_t TISM_Postman (TISM_Task ThisTask)
                     }
                     else
                     {
-                      // Note that we need to ask TaskManager to wake the recipient.
-                      // Further note, we do not have to ask TaskManager and IRQHandler to wake itself.
-                      if(MessageToProcess->RecipientTaskID!=System.TISM_TaskManagerTaskID)
+                      // Note that we need to ask TaskManager to wake the recipient when delivering on this host.
+                      if(MessageToProcess->RecipientHostID==System.HostID && MessageToProcess->RecipientTaskID!=System.TISM_TaskManagerTaskID)
                         TISM_PostmanData.TaskReceivedMessage[MessageToProcess->RecipientTaskID]=true;
                     }
                    
                     // Processed the message; delete it.
-                    TISM_CircularBufferDelete(&OutboundMessageQueue[CoreCounter]);
+                    TISM_PostmanDeleteMessage(System.OutboundMessageQueue[CoreCounter]);
                     MessageCounter++;
                   }
-                }
+                }              
 
                 // Now send messages to TaskManager to wake all processes who have received a message.
-                for(uint8_t counter=0;counter<System.NumberOfTasks;counter++)
+                for(uint8_t counter=1;counter<System.NumberOfTasks;counter++)
                 {
                   if(TISM_PostmanData.TaskReceivedMessage[counter])
                   {
-                    TISM_CircularBufferWrite(&InboundMessageQueue[System.TISM_TaskManagerTaskID],ThisTask.TaskID,System.TISM_TaskManagerTaskID,TISM_SET_TASK_SLEEP,false,counter); 
+                    //TISM_PostmanWriteMessage(System.Task[System.TISM_TaskManagerTaskID].InboundMessageQueue,System.HostID,ThisTask.TaskID,System.HostID,System.TISM_TaskManagerTaskID,TISM_SET_TASK_SLEEP,false,counter,time_us_64()); 
+                    TISM_TaskManagerSetTaskAttribute(ThisTask,counter,TISM_SET_TASK_SLEEP,false);
                     TISM_PostmanData.TaskReceivedMessage[counter]=false;
                   }
                 }
                 // Go to sleep; we only wake on incoming messages. 
-                // We do it directly here to prevent circulair dependencies with TISM_TaskManager.
-                System.Task[System.TISM_PostmanTaskID].TaskSleeping=true;
+                TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
+
                 // All done.				
 				        break;
 	  case STOP:  // Task required to stop

@@ -3,7 +3,7 @@
   Example task 4; a task that creates artifical load on the system (basically introducing waits) and limits the amount of runs
   before shutting down the system. This can be useful for debugging purposes. 
   
-  This code uses the taskManager.
+  This code uses the task manager.
 
   Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
@@ -56,27 +56,27 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
                 // TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
                 TISM_Message *MessageToProcess;
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderTaskID);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING: // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                    TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                    TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                     break;
                     default:        // Unknown message type - ignore.
                                     break;
                   }
-                  TISM_PostmanDeleteMessage(ThisTask);
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
                 }
 
@@ -84,8 +84,8 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
                 // Do we need to emulate a load?
                 if(ExampleTask4Data.EmulateLoad>0)
                 {
-                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Emulating load of %dms for task %s.", ExampleTask4Data.EmulateLoad, ThisTask.TaskName);
-                  sleep_ms (ExampleTask4Data.EmulateLoad);    
+                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Emulating load of %dms for task %s.", ExampleTask4Data.EmulateLoad, ThisTask.TaskName);
+                  sleep_ms(ExampleTask4Data.EmulateLoad);    
                 }
 
                 // Do we have a limit on task starts?
@@ -95,17 +95,17 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
                   if(ExampleTask4Data.TaskStarts>ExampleTask4Data.MaxNumberTaskStarts)
                   {
                     // Maximum reached - send a message to taskmanager to stop the system.
-                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Maximum number of runs (%d) reached; stopping.", ExampleTask4Data.MaxNumberTaskStarts);
+                    TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Maximum number of runs (%d) reached; stopping.", ExampleTask4Data.MaxNumberTaskStarts);
                     
                     // Stop the system by requesting the TaskManager.
                     TISM_TaskManagerSetSystemState(ThisTask, STOP);
                   }
                   else
-                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of runs: %d.", ExampleTask4Data.TaskStarts);
+                    TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of runs: %d.", ExampleTask4Data.TaskStarts);
                 }
 				        break;
 	  case STOP:  // Task required to stop this task.
-		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
+		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		          
                 // Set the task state to DOWN. 
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
@@ -113,7 +113,7 @@ uint8_t ExampleTask4 (TISM_Task ThisTask)
   }
 		
   // Run completed.
-  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
 
   return (OK);
 }

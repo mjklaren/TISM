@@ -5,7 +5,7 @@
   messages are received from ExampleTask1. So the amount of succesful runs within the specified timeframe will be different;
   holding the button down will keep the process' priority high.
 
-  This code uses the taskManager, software timer and messaging functions.
+  This code uses the task manager, software timer and messaging functions.
 
   Note: requests to change task attributes are done via the messaging system. Messages are processed AFTER a task completes a run.
 
@@ -44,7 +44,7 @@ struct ExampleTask3Data
 uint8_t ExampleTask3 (TISM_Task ThisTask)
 {
   if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
-  
+
   // The scheduler maintains the state of the task and the system.
   switch(ThisTask.TaskState)   
   {
@@ -64,36 +64,36 @@ uint8_t ExampleTask3 (TISM_Task ThisTask)
                 // First check for incoming messages and process them.
                 uint8_t MessageCounter=0;
                 TISM_Message *MessageToProcess;
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderTaskID);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING:          // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                             TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                             TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                              break;
                     case EVENTID:            // Timer expired; write the number of runs in the interval to the log.
-                                             TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of runs in this cycle: %d.", ExampleTask3Data.NumberOfRunsCounter);
+                                             TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of runs in this cycle: %d.", ExampleTask3Data.NumberOfRunsCounter);
                                              ExampleTask3Data.NumberOfRunsCounter=0;
                                              break;
                     case GPIO_IRQ_EDGE_FALL: // Button is pressed (message from ExampleTask1). Increase this task's priority.
-                            		             if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message received; button pressed.");
+                            		             if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Message received; button pressed.");
 
                                              TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_PRIORITY,PRIORITY_HIGH);
                                              break;   
                     case GPIO_IRQ_EDGE_RISE: // Button is released (message from ExampleTask1). Set this task's priority to normal.
-                                             if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message received; button released.");
+                                             if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Message received; button released.");
 
                                              TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_PRIORITY,PRIORITY_NORMAL);
                                              break;
                     default:                 // Unknown message type - ignore.
                                             break;
                   }
-                  TISM_PostmanDeleteMessage(ThisTask);
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
                 }
 				        break;
@@ -107,7 +107,7 @@ uint8_t ExampleTask3 (TISM_Task ThisTask)
 		
   // Increase the counter of total runs in this interval with 1.
   ExampleTask3Data.NumberOfRunsCounter++;
-  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Run completed.");
 
   return (OK);
 }

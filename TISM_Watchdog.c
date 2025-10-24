@@ -1,8 +1,10 @@
 /*
+  
   TISM_Watchdoc.c
   ===============
   Task to check if other tasks are still alive. Generate warnings to STDthe EventLogger in case of timeouts.
-  This task runs as a 'regular' task in the TISM-system.
+  This task runs as a 'regular', low priority task in the TISM-system. Usefull for debugging.
+  Can be enabled by removing "TISM_DISABLE_WATCHDOG" in TISM.h.
 
   Parameters:
   TISM_Task ThisTask      - Struct containing all task related information.
@@ -66,20 +68,20 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                 // First check for incoming messages.
                 int MessageCounter=0;
                 TISM_Message *MessageToProcess;
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING: // Reply to PING request.
-                                    TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                    TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                     break;
                     case TISM_TEST: // This is mostly used for debugging purposes. Print a text to STDOUT.
-                                    if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Test message received from TaskID %d (%s).", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                    if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Test message received from TaskID %d (HostID %d).", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
                                     break;
                     case TISM_ECHO: // Echo reply to our ping request
                                     // Is this the reply to the last message we've sent to this task?
@@ -88,23 +90,23 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                                       // Correct response received; calculate the delay. Did the response exceed the maximum?
                                       TISM_WatchdogData.ResponseDelay=time_us_64()-TISM_WatchdogData.TimeRequestSent[MessageToProcess->SenderTaskID];
 
-                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Valid ECHO response received from %d (%s), delay %ld.", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, TISM_WatchdogData.ResponseDelay);
+                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Valid ECHO response received from %d (HostID %d), delay %ld.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, TISM_WatchdogData.ResponseDelay);
 
                                       if(TISM_WatchdogData.ResponseDelay>WATCHDOG_TASK_TIMEOUT)
                                       {
                                         // For now, only generate a warning.
-                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "ECHO response on PING request from %d (%s) exceeded maximum delay (%d).", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, WATCHDOG_TASK_TIMEOUT);
+                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "ECHO response on PING request from %d (HostID %d) exceeded maximum delay (%d).", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, WATCHDOG_TASK_TIMEOUT);
                                       }
                                     }
                                     else
                                     {
-                                      if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Invalid ECHO response received on PING request from %d (%s); expected %ld, received %ld.", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, TISM_WatchdogData.DataRequestSent[MessageToProcess->SenderTaskID], MessageToProcess->Message);
+                                      if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Invalid ECHO response received on PING request from %d (HostID %d); expected %ld, received %ld.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, TISM_WatchdogData.DataRequestSent[MessageToProcess->SenderTaskID], MessageToProcess->Message);
                                     }
                                     break;
                     default:        // Unknown message type - ignore.
                                     break;
                   }
-                  TISM_PostmanDeleteMessage(ThisTask);
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
                 }
 
@@ -118,7 +120,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                     if((!System.Task[MessageCounter].TaskSleeping) && (System.Task[MessageCounter].TaskID!=ThisTask.TaskID))
                     {
                       // Send the PING message; store the time of sending and message, so we can check when we get a reply.
-                      TISM_PostmanWriteMessage(ThisTask,MessageCounter,TISM_PING,TISM_WatchdogData.PingMessageCounter,0);
+                      TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,MessageCounter,TISM_PING,TISM_WatchdogData.PingMessageCounter,0);
 
                       if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Sent PING request to %d.", MessageCounter);
   

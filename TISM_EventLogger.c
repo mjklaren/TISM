@@ -1,5 +1,6 @@
 
 /*
+  
   TISM_EventLogger.c
   ==================
   A uniform and thread-safe method for handling of log entries. This task runs as a 'regular' task in 
@@ -14,6 +15,9 @@
 
 */
 
+#include <stdarg.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include <stdarg.h>
 #include "TISM.h"
 
@@ -31,14 +35,19 @@
   false                   - Event could not be delivered (unable to store in the outbound circular buffer).
   true                    - Event logged succesfully.
 */
-bool TISM_EventLoggerLogEvent (TISM_Task ThisTask, uint8_t LogEntryType, const char *format, ...)
+bool TISM_EventLoggerLogEvent(TISM_Task ThisTask,uint8_t LogEntryType,const char *format, ...)
 {
   char *ReturnBuffer=malloc(sizeof(char)*EVENT_LOG_ENTRY_LENGTH);
+  if(ReturnBuffer==NULL)
+    return(false);
   va_list args;
   va_start(args,format);
-  va_end(args);
   vsnprintf(ReturnBuffer,EVENT_LOG_ENTRY_LENGTH,format,args);
-  return(TISM_CircularBufferWriteWithTimestamp(ThisTask.OutboundMessageQueue, ThisTask.TaskID, System.TISM_EventLoggerTaskID, LogEntryType, (uint32_t)ReturnBuffer, 0, time_us_64()));
+  va_end(args);
+  bool Result=TISM_PostmanWriteMessage(ThisTask.OutboundMessageQueue,System.HostID,ThisTask.TaskID,System.HostID,System.TISM_EventLoggerTaskID,LogEntryType,(uint32_t)ReturnBuffer,0,time_us_64());
+  if(!Result)
+    free(ReturnBuffer);  // Sending message failed; clean up memory.
+  return(Result);
 }
 
 
@@ -62,52 +71,74 @@ uint8_t TISM_EventLogger (TISM_Task ThisTask)
   {
     case INIT:  // Activities to initialize this task (e.g. initialize ports or peripherals).
                 // Write the first log entry
-                fprintf(STDOUT, "%llu %s (ID %d): Logging started.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID);
+                fprintf(STDOUT, "%llu %s (TaskID %d, HostID %d): Logging started.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, System.HostID);
 
-                if (ThisTask.TaskDebug) fprintf(STDOUT, "%llu %s (ID %d): Initializing with priority %d.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority);
+                if (ThisTask.TaskDebug) fprintf(STDOUT, "%llu %s (TaskID %d, HostID %d): Initializing with priority %d.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, System.HostID, ThisTask.TaskPriority);
 				        
+                // EventLogger requires a larger incoming messagebuffer.
+                if(!(TISM_PostmanBufferResize(System.Task[ThisTask.TaskID].InboundMessageQueue,EVENTLOGGER_MAX_MESSAGES,sizeof(TISM_Message))))
+                  return(ERR_INITIALIZING);
+
                 // As the EventLogger only responds to events, go to sleep.
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
-		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) fprintf(STDOUT, "%llu %s (ID %d): Doing work with priority %d on core %d.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
-
-                // First check for incoming messages and process them.
-                uint8_t MessageCounter=0;
-                TISM_Message *MessageToProcess;
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) 
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
-
-                  if (ThisTask.TaskDebug) fprintf(STDOUT, "%llu %s (ID %d): Message '%ld' type %d from TaskID %d (%s) received.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
-
-                  // Processed the message; delete it.
-                  switch(MessageToProcess->MessageType)
-                  {
-                    case TISM_PING:             // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                                TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
-                                                break;
-                    case TISM_LOG_EVENT_NOTIFY: // Log event message; write the message to STDOUT.
-                                                fprintf(STDOUT, "%llu %s (ID %d): %s\n", MessageToProcess->MessageTimestamp, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, (char *)MessageToProcess->Message);
-                                                free((char *)MessageToProcess->Message); 
-                                                break;
-                    case TISM_LOG_EVENT_ERROR:  // Log error message; write the message to STDERR.
-                                                fprintf(STDERR, "%llu %s (ID %d) ERROR: %s\n", MessageToProcess->MessageTimestamp, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, (char *)MessageToProcess->Message);
-                                                free((char *)MessageToProcess->Message); 
-                                                break;
-                    default:                    // Unknown message type - ignore.
-                    printf("FOUT: message type %d\n",MessageToProcess->MessageType);
-                                                break;
-                  }
-                  TISM_PostmanDeleteMessage(ThisTask);
-                  MessageCounter++;
+                  fprintf(STDOUT, "%llu %s (TaskID %d): Doing work with priority %d on core %d.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
+                  fflush(STDOUT);
                 }
 
+                // First check for incoming messages and process them.
+                uint16_t MessageCounter=0;    // Queue of eventlogger can be >255
+                TISM_Message *MessageToProcess;
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<EVENTLOGGER_MAX_MESSAGES))
+                {        
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
+                  if (ThisTask.TaskDebug)
+                  {
+                    fprintf(STDOUT, "%llu %s (TaskID %d, HostID %d): Message '%ld' type %d from TaskID %d (HostID %d) received.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID, System.HostID, MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                    fflush(STDOUT);
+                  }
+
+                  // Process the message and delete it - but only if these messages come from this host. We cannot log for other hosts.
+                  if(MessageToProcess->SenderHostID==System.HostID)
+                  {
+                    switch(MessageToProcess->MessageType)
+                    {
+                      case TISM_PING:             // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
+                                                  TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                                  break;
+                      case TISM_LOG_EVENT_NOTIFY: // Log event message; write the message to STDOUT.
+                                                  fprintf(STDOUT, "%llu %s (TaskID %d, HostID %d): %s\n", MessageToProcess->MessageTimestamp, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, (char *)MessageToProcess->Message);
+                                                  free((char *)MessageToProcess->Message);
+                                                  fflush(STDOUT); 
+                                                  break;
+                      case TISM_LOG_EVENT_ERROR:  // Log error message; write the message to STDERR.
+                                                  fprintf(STDERR, "%llu %s (TaskID %d, HostID %d) ERROR: %s\n", MessageToProcess->MessageTimestamp, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, (char *)MessageToProcess->Message);
+                                                  free((char *)MessageToProcess->Message);
+                                                  fflush(STDOUT); 
+                                                  break;
+                      default:                    // Unknown message type - ignore.
+                                                  fprintf(STDERR, "%llu %s (Task ID %d, HostID %d) ERROR: Unknown message type %d received from TaskID %d (HostID %d). Ignoring.\n", time_us_64(), System.Task[ThisTask.TaskID].TaskName, ThisTask.TaskID, System.HostID, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                                  break;
+                    }
+                  }
+                  else
+                  {
+                    // Receiving messages from other hosts is nog allowed - log messages cannot contain a pointer with text.
+                    fprintf(STDERR, "%llu %s (Task ID %d, HostID %d) ERROR: Message received from HostID %d. Ignoring.\n", time_us_64(), System.Task[ThisTask.TaskID].TaskName, System.HostID, MessageToProcess->SenderHostID);
+                  }
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
+                  MessageCounter++;
+                }
+                
                 // Logs handled; return to sleep.
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case STOP:  // Task required to stop this task, including the last log entry.
                 fprintf(STDOUT, "%llu %s (ID %d): Logging stopped.\n", time_us_64(), ThisTask.TaskName, ThisTask.TaskID);
+                fflush(STDOUT);
 
                 // Set the task state to DOWN. 
                 TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);

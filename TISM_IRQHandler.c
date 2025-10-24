@@ -1,4 +1,5 @@
 /*
+  
   IRQHandler.c
   ============
   Routines to process external interrupts (IRQs). Other functions can 'subscribe' to these events, after which IRQHandler will
@@ -33,7 +34,7 @@
 // Structure of the linear list containing all subscriptions to interrupts; one list per GPIO.
 struct TISM_IRQHandlerSubscription
 {
-  uint8_t TaskID;
+  uint8_t TaskID, HostID;
   uint32_t Events;
   uint32_t AntiBounceTimeout;
   uint64_t LastSuccessfullInterrupt;
@@ -86,11 +87,12 @@ struct TISM_IRQHandlerData
   Return value:
   false - Message delivery failed.
   true  - Request sent.
-*/bool TISM_IRQHandlerSubscribe(TISM_Task ThisTask, uint8_t GPIO, uint32_t Events, bool GPIOPullDown, uint32_t AntiBounceTimeout)
+*/
+bool TISM_IRQHandlerSubscribe(TISM_Task ThisTask, uint8_t GPIO, uint32_t Events, bool GPIOPullDown, uint32_t AntiBounceTimeout)
 {
   // Use the Specification-field in the message to capture the AntiBounceTimeout and the GPIOPullDown.
   uint32_t CombinedValue=(0xFFFFFF & AntiBounceTimeout)+(GPIOPullDown==true?0x01000000:0);
-  return(TISM_PostmanWriteMessage(ThisTask,System.TISM_IRQHandlerTaskID,GPIO,Events,CombinedValue));
+  return(TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_IRQHandlerTaskID,GPIO,Events,CombinedValue));
 }
 
 
@@ -126,7 +128,7 @@ uint32_t TISM_IRQHandlerCalculateEventsMask(struct TISM_IRQHandlerSubscription *
 void TISM_IRQHandlerCallback(uint8_t GPIO,uint32_t Events)
 {
   // Interrupt received; write the interrupt to the circular buffer IRQHandlerInboundQueue for later processing.
-  TISM_CircularBufferWrite(&IRQHandlerInboundQueue,System.TISM_IRQHandlerTaskID,System.TISM_IRQHandlerTaskID,GPIO,Events,0);
+  TISM_PostmanWriteMessage(System.IRQHandlerInboundQueue,System.HostID,System.TISM_IRQHandlerTaskID,System.HostID,System.TISM_IRQHandlerTaskID,GPIO,Events,0,time_us_64());
   gpio_acknowledge_irq(GPIO,Events);
 }
 
@@ -153,7 +155,11 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
 		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
 
                 // Init the circular buffer to receive interrupts and clear the subscription-list.
-                TISM_CircularBufferInit (&IRQHandlerInboundQueue);           
+                // This is a 2nd circular buffer, next to the 'regular' inbound queue for inter-task messaging.
+                if(!(System.IRQHandlerInboundQueue=TISM_PostmanBufferInit(IRQHANDLER_MAX_MESSAGES,sizeof(TISM_Message))))
+                  return(ERR_INITIALIZING);
+              
+                // Initalize the register of registered subscriptions.
                 for(uint8_t counter=0;counter<NUMBER_OF_GPIO_PORTS;counter++)
                 {
                   TISM_IRQHandlerData.GPIO[counter].Initialized=false;
@@ -171,10 +177,10 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                 // Are there any interrupts waiting in the circular buffer we need to process?
                 uint16_t MessageCounter=0;
                 TISM_Message *MessageToProcess;	
-                while((TISM_CircularBufferMessagesWaiting(&IRQHandlerInboundQueue)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanMessagesWaiting(System.IRQHandlerInboundQueue)>0) && (MessageCounter<IRQHANDLER_MAX_MESSAGES))
                 {
                   // Read the next IRQ message from the queue and check which tasks have subscribed to it.
-                  MessageToProcess=TISM_CircularBufferRead(&IRQHandlerInboundQueue);
+                  MessageToProcess=TISM_PostmanReadMessage(System.IRQHandlerInboundQueue);
 
                   if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Processing interrupt message '%ld' with type %d from the IRQ handler queue.", MessageToProcess->Message, MessageToProcess->MessageType);
 
@@ -189,7 +195,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                         if((SearchPointer->AntiBounceTimeout==0) || 
                           (MessageToProcess->MessageTimestamp>(SearchPointer->LastSuccessfullInterrupt+SearchPointer->AntiBounceTimeout)))
                         {
-                          TISM_PostmanWriteMessage(ThisTask,SearchPointer->TaskID,MessageToProcess->MessageType,MessageToProcess->Message,TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown);                          
+                          TISM_PostmanTaskWriteMessage(ThisTask,SearchPointer->HostID,SearchPointer->TaskID,MessageToProcess->MessageType,MessageToProcess->Message,TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown);                          
                           SearchPointer->LastSuccessfullInterrupt=MessageToProcess->MessageTimestamp;
                         }
                         else
@@ -203,23 +209,23 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                   }
           
                   // Processed the message; delete it.
-                  TISM_CircularBufferDelete(&IRQHandlerInboundQueue);
+                  TISM_PostmanDeleteMessage(System.IRQHandlerInboundQueue);
                   MessageCounter++;
                 }
 
                 // Now check for other pending messages from other tasks.
                 MessageCounter=0;
-                while((TISM_PostmanMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
+                while((TISM_PostmanTaskMessagesWaiting(ThisTask)>0) && (MessageCounter<MAX_MESSAGES))
                 {
-                  MessageToProcess=TISM_PostmanReadMessage(ThisTask);
+                  MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (%s) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                   // Processed the message.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING: // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                    TISM_PostmanWriteMessage(ThisTask,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                    TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
                                     break;
                     case GPIO_0:    // GPIO number received as message type - we need to create or adjust a IRQ subscription.
                     case GPIO_1:
@@ -256,7 +262,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                       // Bug fix; when we receive an IRQ_UNSUBSCRIBE-request to an uninitialized port.
                                       if(MessageToProcess->Message==IRQ_UNSUBSCRIBE)
                                       {
-                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Warning - Unsubscribe request received from %d (%s) for an uninitialized GPIO (%d); ignoring.", MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName, MessageToProcess->MessageType);
+                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Warning - Unsubscribe request received from %d (HostID %d) for an uninitialized GPIO (%d); ignoring.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->MessageType);
                                         break;
                                       }
 
@@ -276,12 +282,13 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                         TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown=false;
                                       }
 
-                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "First subscription, GPIO %d initialized (request from Task ID %d, event %d, internal resistor pull-%s).", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->Message, (TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown==false?"up":"down"));
+                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "First subscription, GPIO %d initialized (request from TaskID %d, HostID %d, event %d, internal resistor pull-%s).", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->Message, (TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown==false?"up":"down"));
 
                                       TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Initialized=true;
 
                                       // Now register the first subscription in the linear list.
                                       TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions=(struct TISM_IRQHandlerSubscription *) malloc(sizeof(struct TISM_IRQHandlerSubscription));
+                                      TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions->HostID=MessageToProcess->SenderHostID;
                                       TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions->TaskID=MessageToProcess->SenderTaskID;
                                       TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions->Events=MessageToProcess->Message;
                                       TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions->AntiBounceTimeout=(MessageToProcess->Specification & 0xFFFFFF);
@@ -291,12 +298,12 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                     else
                                     {
                                       // There are already tasks subscribed to this GPIO. 
-                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Subscription to GPIO %d being added or modified (Task ID %d, event %d).", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->Message);
+                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Subscription to GPIO %d being added or modified (TaskID %d, HostID %d, event %d).", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->Message);
 
                                       // Find the entry for this TaskID in the linear list, or create a new one.
                                       SearchPointer=TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions;
                                       PreviousSearchPointer=SearchPointer;
-                                      while((SearchPointer!=NULL) && (SearchPointer->TaskID!=MessageToProcess->SenderTaskID))
+                                      while((SearchPointer!=NULL) && (SearchPointer->HostID!=MessageToProcess->SenderHostID) && (SearchPointer->TaskID!=MessageToProcess->SenderTaskID))
                                       {
                                         // Not the one weŕe looking for; move to the next entry.
                                         PreviousSearchPointer=SearchPointer;
@@ -322,7 +329,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                           }
                                           free(SearchPointer);
 
-                                          if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Task ID %d unsubscribed from GPIO %d.", MessageToProcess->SenderTaskID, MessageToProcess->MessageType);
+                                          if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "TaskID %d (HostID %d) unsubscribed from GPIO %d.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->MessageType);
 
                                           // Was this the last subscription to this GPIO? Then we can 'release' this GPIO.
                                           if(TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions==NULL)
@@ -344,7 +351,8 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                       else
                                       {
                                         // Add a new record to the linear list
-                                        struct TISM_IRQHandlerSubscription *NewSubscription=(struct TISM_IRQHandlerSubscription *) malloc(sizeof(struct TISM_IRQHandlerSubscription));
+                                        struct TISM_IRQHandlerSubscription *NewSubscription=(struct TISM_IRQHandlerSubscription *)malloc(sizeof(struct TISM_IRQHandlerSubscription));
+                                        NewSubscription->TaskID=MessageToProcess->SenderHostID;
                                         NewSubscription->TaskID=MessageToProcess->SenderTaskID;
                                         NewSubscription->Events=MessageToProcess->Message;
                                         NewSubscription->AntiBounceTimeout=(MessageToProcess->Specification & 0xFFFFFF);
@@ -352,7 +360,7 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                                         NewSubscription->NextSubscription=NULL;
                                         PreviousSearchPointer->NextSubscription=NewSubscription;
 
-                                        if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Task ID %d subscribed to GPIO %d, anti-bounce value %d", MessageToProcess->SenderTaskID, MessageToProcess->MessageType, NewSubscription->AntiBounceTimeout);                                        
+                                        if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "TaskID %d (HostID %d) subscribed to GPIO %d, anti-bounce value %d", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->MessageType, NewSubscription->AntiBounceTimeout);                                        
                                       }
                                     }
 
@@ -375,12 +383,13 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
 		                                if (ThisTask.TaskDebug) 
                                     {
                                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Subscriptions list for GPIO %d updated.", MessageToProcess->MessageType);
+                                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "We are Host ID:%d", System.HostID);
                                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Tasks registered to interrupts on this GPIO:");
                                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "============================================");                                      
                                       SearchPointer=TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].Subscriptions;
                                       while(SearchPointer!=NULL)
                                       {
-                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Task ID: %d (%s) subscribed to event %d, anti-bounce value %d.", SearchPointer->TaskID, System.Task[SearchPointer->TaskID].TaskName, SearchPointer->Events, SearchPointer->AntiBounceTimeout);
+                                        TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "TaskID: %d (HostID %d) subscribed to event %d, anti-bounce value %d.", SearchPointer->TaskID, SearchPointer->HostID, SearchPointer->Events, SearchPointer->AntiBounceTimeout);
                                         SearchPointer=SearchPointer->NextSubscription;
                                       }
                                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "List complete. Summary event mask: %ld. GPIO initialized as %s.", TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].EventMask, (TISM_IRQHandlerData.GPIO[MessageToProcess->MessageType].GPIOPullDown?"pull-down":"pull-up"));
@@ -390,10 +399,10 @@ uint8_t TISM_IRQHandler (TISM_Task ThisTask)
                     case GPIO_24:   // VBUS detect
                     case GPIO_25:   // LED port of the Raspberry Pi Pico
                     default:        // Unknown message type - ignore.
-                                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Warning - Invalid GPIO subscription (%d) requested by %d (%s); ignoring.", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, System.Task[MessageToProcess->SenderTaskID].TaskName);
+                                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Warning - Invalid GPIO subscription (%d) requested by %d (HostID %d); ignoring.", MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
                                     break;
                   }
-                  TISM_PostmanDeleteMessage(ThisTask);
+                  TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
                 }
 
