@@ -36,9 +36,9 @@ A LOT of bits and part of the system can be modified, have a look at TISM.h. Unc
 - TISM_DISABLE_DUALCORE          - Disables dual processor core operation; only use the first core.
 
 TISM uses a priority mechanism based on the number of microseconds will pass before another run of a task will be retried. As this framework uses cooperative multitasking, there is no guarantee that the task will be executed exactly after this period of time (but it won't start earlier). Effectively; the lower the value, the higher the priority. Furthermore, tasks with PRIORITY_HIGH will be checked more often if tasks need to be executed, PRIORITY_LOW the least often.
-- PRIORITY_HIGH            2500   - High priority task; time after which task should be restarted. 
-- PRIORITY_NORMAL          5000   - Normal priority task; time after which task should be restarted.
-- PRIORITY_LOW             10000  - Low priority task; time after which task should be restarted.
+- PRIORITY_HIGH            2500   - High priority task; time after which task should be restarted (in usec). 
+- PRIORITY_NORMAL          5000   - Normal priority task; time after which task should be restarted (in usec).
+- PRIORITY_LOW             10000  - Low priority task; time after which task should be restarted (in usec).
 
 ## Change log - 251024
 - Major rewrite and cleanup of the code.
