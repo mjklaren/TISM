@@ -25,6 +25,13 @@ To build and install TISM on the Pico:
 
 After succesful installation the Pico's onboard LED will start flashing. The LED's flashing frequency will change every 10 seconds. If the button is pressed however the frequency will change immediately. 
 
+## How the examples work
+This is probably one of the most complex 'blinking led' examples. This example code consists of 4 separate tasks, demonstrating various aspects of the TISM framework:
+- "ExampleTask1.c" monitors GPIO15 by 'subscribing' to GPIO_IRQ_EDGE_FALL and GPIO_IRQ_EDGE_FALL events (press and release of the button) on GPIO15 using the TISM IRQ handler. If the button is pressed messages are sent to ExampleTask2 and ExampleTask3 via TISM's messaging system. If the button is released another message is sent to ExampleTask3.
+- "ExampleTask2.c" is responsible for blinking the onboard LED of the Raspberry Pi Pico (GPIO25). A repetitive software timer is set (TISM's software timer); whenever a message is received the frequency of blinking is changed; when a message is received from ExampleTask1 the frequency is also changed.
+- "ExampleTask3.c" sets a repetitive timer and writes the number of cycles this specific task has run to STDOUT whenever an event from the software timer is received. But there is a twist; whenever the button is pressed (and a message is received from ExampleTask1) the priority of this task is set to PRIORITY_HIGH by modifying its task properties, resulting in this task running more often. When the button is released (again, a message is received from ExampleTask1) the priority is reset to PRIORITY_NORMAL. So holding the button means that ExampleTask3 will run more often.
+- "ExampleTask4.c" emulates load on the system by using 'sleep_ms' and counting how many cycles it has run. When the maximum number of runs is reached the TISM-system is stopped.
+
 And that's it! Check the sourcecode (ExampleTask1.c to ExampleTask4.c) to see what happens internally. TISM (and the example application) will write some logging information to standard output. To see the output (on Linux) use a terminal emulator:
 
 `sudo screen /dev/ttyACM0`
