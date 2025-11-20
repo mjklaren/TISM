@@ -14,7 +14,7 @@ But still, TISM is only an easy way to jump between tasks and allow sharing of C
 ## Getting started with the example tasks
 The framework includes three example tasks that demonstrate some of the inner workings of TISM. The wiring is pretty simple; a single button acting as a pull-down connected to GPIO 15 (including an RC network to debounce, which is optional):
 
-![Example](https://github.com/mjklaren/TISM/assets/127024801/2ab32137-552a-4969-b3de-f1f85a9da09d)
+<img width="1755" height="636" alt="TISM_Example_bb" src="https://github.com/user-attachments/assets/f4347fa7-aa3d-4b02-8a6b-28bdff27c91e" />
 
 To build and install TISM on the Pico:
 - Install the [Raspberry Pi Pico SDK](https://datasheets.raspberrypi.com/pico/getting-started-with-pico.pdf) on your device.
