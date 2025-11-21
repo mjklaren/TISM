@@ -67,6 +67,7 @@ To make the most effective use of TISM follow these few tips:
 - Laid some groundwork for multi-host operation.
  
 ## Wish list:
+- Rewrite of the EventLogger to switch from dynamic to static allocated memory for messages, to prevent memory fragmentation after long runs.
 - Multi-host operation using Wifi or RS485.
 
 The source code is distributed under the GPLv3 license.
