@@ -55,6 +55,8 @@ To make the most effective use of TISM follow these few tips:
 - TISM provides an interrupt handler that allows multiple tasks to 'subscribe' to certain events on the GPIOs. Use this whenever possible to share the interrupt facility; as the Raspberry Pi Pico currently only supports one interrupt handler.
 - Prevent loops (e.g. 'do-while' and 'for') as much as possible. Allow a task to run as briefly as possible, end the run ('return') and trust that TISM will restart the task again.
 - As the Raspberry Pi Pico doesn't have a MCU and TISM doesn't store stack and heap, make use of global variables to maintain the state of your task. In the example tasks a struct is used for storing and retaining data across runs; using this naming convention guarantees that global variables remain unique.
+- Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother.
+- You can set the debugging levels of the whole system and each task separately. Use this carefully; extensive logging slows the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the progress of your tasks.
 
 ## Change log - 251024
 - Major rewrite and cleanup of the code.
