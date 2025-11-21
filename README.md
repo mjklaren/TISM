@@ -28,24 +28,33 @@ After succesful installation the Pico's onboard LED will start flashing. The LED
 ## How the examples work
 This is probably one of the most complex 'blinking led' examples. This example code consists of 4 separate tasks, demonstrating various aspects of the TISM framework:
 - "ExampleTask1.c" monitors GPIO15 by 'subscribing' to GPIO_IRQ_EDGE_FALL and GPIO_IRQ_EDGE_FALL events (press and release of the button) on GPIO15 using the TISM IRQ handler. If the button is pressed messages are sent to ExampleTask2 and ExampleTask3 via TISM's messaging system. If the button is released another message is sent to ExampleTask3.
-- "ExampleTask2.c" is responsible for blinking the onboard LED of the Raspberry Pi Pico (GPIO25). A repetitive software timer is set (TISM's software timer); whenever a message is received the frequency of blinking is changed; when a message is received from ExampleTask1 the frequency is also changed.
-- "ExampleTask3.c" sets a repetitive timer and writes the number of cycles this specific task has run to STDOUT whenever an event from the software timer is received. But there is a twist; whenever the button is pressed (and a message is received from ExampleTask1) the priority of this task is set to PRIORITY_HIGH by modifying its task properties, resulting in this task running more often. When the button is released (again, a message is received from ExampleTask1) the priority is reset to PRIORITY_NORMAL. So holding the button means that ExampleTask3 will run more often.
-- "ExampleTask4.c" emulates load on the system by using 'sleep_ms' and counting how many cycles it has run. When the maximum number of runs is reached the TISM-system is stopped.
+- "ExampleTask2.c" is responsible for blinking the onboard LED of the Raspberry Pi Pico (GPIO25). A repetitive software timer is set (TISM's software timer); whenever a message is received from the timer the frequency of blinking is changed; when a message is received from ExampleTask1 the frequency is also changed.
+- "ExampleTask3.c" sets a repetitive timer (again TISM's software timer) and writes the number of cycles ExampleTask3 has run to STDOUT whenever an event from the software timer is received. But there is a twist; whenever the button is pressed (and a message is received from ExampleTask1) the priority of this task (ExampleTask3) is set to PRIORITY_HIGH by modifying its task properties, resulting in this task running more often. When the button is released (again, a message is received from ExampleTask1) the priority is reset to PRIORITY_NORMAL. So holding the button means that ExampleTask3 will run more often.
+- "ExampleTask4.c" emulates load on the system by using 'sleep_ms' (basically waiting and waisting CPU time) and counting how many cycles it has run. When the maximum number of runs is reached the TISM-system is stopped by changing the system state.
 
 And that's it! Check the sourcecode (ExampleTask1.c to ExampleTask4.c) to see what happens internally. TISM (and the example application) will write some logging information to standard output. To see the output (on Linux) use a terminal emulator:
 
 `sudo screen /dev/ttyACM0`
 
-## Tuning the behavior of TISM
-A LOT of bits and part of the system can be modified, have a look at TISM.h. Uncommenting the following definitions will impact behavior and performance of the Raspberry Pi Pico:
+## Tuning the behavior of TISM 
+A LOT of bits and part of the system can be modified, have a look at TISM.h. Uncommenting the following definitions will change the behavior of TISM and performance of the Raspberry Pi Pico:
 - TISM_DISABLE_PRIORITIES        - Disable priorities mechanism; all tasks are executed round robin.
 - TISM_DISABLE_SCHEDULER         - Disables the scheduler; all tasks start consecutively, no planning. Also disables the TISM_SoftwareTimer.
 - TISM_DISABLE_DUALCORE          - Disables dual processor core operation; only use the first core.
 
-TISM uses a priority mechanism based on the number of microseconds will pass before another run of a task will be retried. As this framework uses cooperative multitasking, there is no guarantee that the task will be executed exactly after this period of time (but it won't start earlier). Effectively; the lower the value, the higher the priority. Furthermore, tasks with PRIORITY_HIGH will be checked more often if tasks need to be executed, PRIORITY_LOW the least often.
+TISM uses a priority mechanism based on the number of microseconds that have to pass before a task is executed again. As this framework uses cooperative multitasking there is no guarantee that the task will be executed exactly at this period of time (but it won't start earlier). Effectively; the lower the value, the higher the priority. Furthermore, tasks with PRIORITY_HIGH will be checked more often if tasks need to be executed, PRIORITY_LOW the least often.
 - PRIORITY_HIGH            2500   - High priority task; time after which task should be restarted (in usec). 
 - PRIORITY_NORMAL          5000   - Normal priority task; time after which task should be restarted (in usec).
 - PRIORITY_LOW             10000  - Low priority task; time after which task should be restarted (in usec).
+Altering these values will affect how CPU time is distributed between tasks.
+
+## Tips for developing tasks
+To make the most effective use of TISM follow these few tips:
+- Break down activities into small components as much as possible.
+- Use the TISM messaging system to communicate between tasks and the TISM scheduler to plan events.
+- TISM provides an interrupt handler that allows multiple tasks to 'subscribe' to certain events on the GPIOs. Use this whenever possible to share the interrupt facility; as the Raspberry Pi Pico currently only supports one interrupt handler.
+- Prevent loops (e.g. 'do-while' and 'for') as much as possible. Allow a task to run as briefly as possible, end the run ('return') and trust that TISM will restart the task again.
+- As the Raspberry Pi Pico doesn't have a MCU and TISM doesn't store stack and heap, make use of global variables to maintain the state of your task. In the example tasks a struct is used for storing and retaining data across runs; using this naming convention guarantees that global variables remain unique.
 
 ## Change log - 251024
 - Major rewrite and cleanup of the code.
