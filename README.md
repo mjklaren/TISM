@@ -53,7 +53,7 @@ Altering these values will affect how CPU time is distributed between tasks. Pro
 
 ## Networking/message exchange between hosts
 TISM has an internal messaging system which is basically a core component for a lot of features (e.g. scheduling, IRQ handling). TISM now supports exchange of TISM-messages between hosts the UART. In this way 2 Picos can be connected directly, or multiple Picos can connect to the same network using TTL-to-Wifi devices like the DT-09. In TISM.h the unique HostID is set, along with other parameters like GPIO of the UART, baudrate etc. Unsurprisingly, HostIDs need to be unique in the network.
-A detailed description of the protocol can be found in de 'doc'-section.
+A detailed description of the protocol [can be found in de 'doc'-section](https://github.com/mjklaren/TISM/tree/main/doc).
 
 ## Tips for developing tasks
 To make the most effective use of TISM follow these few tips:
