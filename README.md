@@ -41,6 +41,8 @@ A LOT of bits and part of the system can be modified, have a look at TISM.h. Unc
 - TISM_DISABLE_PRIORITIES        - Disable priorities mechanism; all tasks are executed round robin.
 - TISM_DISABLE_SCHEDULER         - Disables the scheduler; all tasks start consecutively, no planning. Also disables the TISM_SoftwareTimer.
 - TISM_DISABLE_DUALCORE          - Disables dual processor core operation; only use the first core.
+- TISM_DISABLE_UARTMX            - Disables the exchange of TISM messages between Picos using the UART (e.g. nullmodel or DT-09 devices).
+- TISM_DISABLE_PROTECTIONS       - Disables (limited) protection of TISM system tasks against state changes by non-TISM tasks.
 
 TISM uses a priority mechanism based on the number of microseconds that have to pass before a task is executed again. As this framework uses cooperative multitasking there is no guarantee that the task will be executed exactly at this period of time (but it won't start earlier). Effectively; the lower the value, the higher the priority. Furthermore, tasks with PRIORITY_HIGH will be checked more often if tasks need to be executed, PRIORITY_LOW the least often.
 - PRIORITY_HIGH            2500   - High priority task; time after which task should be restarted (in usec). 
@@ -56,7 +58,7 @@ To make the most effective use of TISM follow these few tips:
 - Prevent loops (e.g. 'do-while' and 'for') as much as possible. Allow a task to run as briefly as possible, end the run ('return') and trust that TISM will restart the task again.
 - As the Raspberry Pi Pico doesn't have a MCU and TISM doesn't store stack and heap, make use of global variables to maintain the state of your task. In the example tasks a struct is used for storing and retaining data across runs; using this naming convention guarantees that global variable names remain unique.
 - Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother.
-- You can set the debugging levels of the whole system and each task separately. Use this carefully; extensive logging slows the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the progress of your tasks.
+- You can set the debugging levels of the whole system and each task separately. Use this carefully; extensive logging can slow the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the handling of your tasks.
 
 ## Change log - 260301
 - Removed some nasty bugs from the scheduler, added a couple of mutexes and critical code segments.
@@ -64,6 +66,7 @@ To make the most effective use of TISM follow these few tips:
 - Added a "network" feature! TISM is now able to communicate with other Pi Picos via the UART (e.g. nullmodem or DT-09).
 - Added a network management task to build a 'network neighborhood' list, to resolve hostnames and tasknames.
 - Added a (simple) console to look 'under the hood' of TISM, using the USB/serial interface.
+- Unsubscribing from IRQs now fully work.
 
 ## Change log - 251024
 - Major rewrite and cleanup of the code.
