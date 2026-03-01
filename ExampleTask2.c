@@ -10,7 +10,7 @@
 
   Note: outgoing messages are stored in an outbound queue and only delivered AFTER a task completes a run.
 
-  Copyright (c) 2024 Maarten Klarenbeek (https://github.com/mjklaren)
+  Copyright (c) 2026 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
   
 */
@@ -23,13 +23,10 @@
 #define EXAMPLETASK2_TIMER        20000 // in msec
 
 
-// The structure containing all data for this task to run. 
-struct ExampleTask2Data
-{
-  uint8_t ToggleTimeDivison;
-  bool LightIson;
-  uint64_t ToggleTime;
-} ExampleTask2Data;
+// Static variables needed for this task to run.
+static uint8_t ToggleTimeDivison;
+static bool LightIson;
+static uint64_t ToggleTime;
 
 
 /*
@@ -59,16 +56,16 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
                 gpio_set_dir(LED_PIN, GPIO_OUT);
 
                 // When starting, light is off. Define next toggle period using virtual software timer.
-                ExampleTask2Data.LightIson=false;
+                LightIson=false;
                 gpio_put(LED_PIN, 0);
-                ExampleTask2Data.ToggleTimeDivison=1;
-                ExampleTask2Data.ToggleTime=TISM_SoftwareTimerSetVirtual(EXAMPLETASK2_TIMEOUT_USEC);
+                ToggleTimeDivison=1;
+                ToggleTime=TISM_SoftwareTimerSetVirtual(EXAMPLETASK2_TIMEOUT_USEC);
 
                 // Also, set an 'real' software timer to trigger a change in blinking frequency.
                 TISM_SoftwareTimerSet(ThisTask,EXAMPLETASK2_TIMERID,true,EXAMPLETASK2_TIMER);
 
                 // For tasks that only respond to events (=messages) we could set the sleep attribute to ´true'.
-                // TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
+                // TISM_SchedulerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
 		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
@@ -80,13 +77,13 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderTaskID);
+                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %s-0x%02X from TaskID %d (HostID %d) received.", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
                     case TISM_PING:            // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                               TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
+                                               TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Payload0,0);
                                                break;
                     case EXAMPLETASK2_TIMERID: // Software timer expired; Change the ToggleTimeDivision so that
                                                // the frequency of the blinking light will change.
@@ -94,7 +91,7 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
                                                // the frequency of the blinking light will change.
                                                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Changing frequency of the blinker.");
 
-                                               ExampleTask2Data.ToggleTimeDivison=(ExampleTask2Data.ToggleTimeDivison==1?4:1);
+                                               ToggleTimeDivison=(ToggleTimeDivison==1?4:1);
                                                break;
                     default:                   // Unknown message type - ignore.
                                                break;
@@ -105,27 +102,27 @@ uint8_t ExampleTask2 (TISM_Task ThisTask)
 
                 // Other work to do in this state.
                 // Did the timeout period expire? If so, toggle the light.
-                if(TISM_SoftwareTimerVirtualExpired(ExampleTask2Data.ToggleTime))
+                if(TISM_SoftwareTimerVirtualExpired(ToggleTime))
                 {
                   // Timer is expired. Toggle the LED, calculate the next timeout.
-                  if(ExampleTask2Data.LightIson)
+                  if(LightIson)
                   {
                     gpio_put(LED_PIN, 0);
-                    ExampleTask2Data.LightIson=false;
+                    LightIson=false;
                   }
                   else
                   {
                     gpio_put(LED_PIN, 1);
-                    ExampleTask2Data.LightIson=true;
+                    LightIson=true;
                   }
-                  ExampleTask2Data.ToggleTime=TISM_SoftwareTimerSetVirtual(EXAMPLETASK2_TIMEOUT_USEC/ExampleTask2Data.ToggleTimeDivison);
+                  ToggleTime=TISM_SoftwareTimerSetVirtual(EXAMPLETASK2_TIMEOUT_USEC/ToggleTimeDivison);
                 }
 				        break;
 	  case STOP:  // Task required to stop this task.
 		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		          
                 // Set the task state to DOWN. 
-                TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
+                TISM_SchedulerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
 		            break;					
   }
 		

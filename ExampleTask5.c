@@ -1,6 +1,8 @@
 /*
 
-  A template for a task running in the TISM-system.
+  Example task 5; a task that reads incoming packets from the uarts and writes them to the eventlog. 
+  
+  This code uses the UART Message Exchange and event logger.
 
   Copyright (c) 2026 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
@@ -9,21 +11,21 @@
 
 #include "TISM.h"
 
+#define EXAMPLETASK5_UART  
+#define EXAMPLETASK5_TXPIN
+#define EXAMPLETASK5_RXPIN
 
-/*
-  All data for this task to run. These variables allow the task to remain its state as the stack 
-  and heap are not saved between runs. We use static variables as an easy way to make sure variable
-  names are unique in the whole system.
 
-  YOUR CODE HERE.
-*/
-static int YourVariable1, YourVariable2;  
+// Static variables needed for this task to run.
+static int EmulateLoad, MaxNumberTaskStarts, TaskStarts;
+
+
+//todo
 
 
 /*
   Description:
-  This is the function that is registered in the TISM-system via the TISM_RegisterTask. A pointer to this function is used.
-  For debugging purposes the TISM_EventLoggerLogEvent-function is used (not mandatory).
+  Example task 4; a task that creates artifical load on the system (basically introducing waits) and limits the amount of runs.
 
   Parameters:
   TISM_Task ThisTask - Struct containing all relevant information for this task to run. This is provided by the scheduler.
@@ -32,28 +34,26 @@ static int YourVariable1, YourVariable2;
   <non-zero value>        - Task returned an error when executing. A non-zero value will stop the system.
   OK                      - Run succesfully completed.
 */
-uint8_t TaskTemplate (TISM_Task ThisTask)
+uint8_t ExampleTask5 (TISM_Task ThisTask)
 {
-  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
+  if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Run starting.");
   
-  /*
-    The scheduler maintains the state of the task and the system. Specify here the actions per state.
-    Using the states (and the case-statements below) is optional.
-    Task states INIT, RUN, STOP and DOWN are predefined.
-    INIT is used during startup; when all tasks have initialized correctly the system state is set to RUN.
-    Once the system is in this state the task can then switch to custom states. When the system stops all tasks are switched
-    to the STOP-state. Remember to always check for incoming messages in custom states.
-  */
+  // The scheduler maintains the state of the task and the system.
   switch(ThisTask.TaskState)   
   {
     case INIT:  // Activities to initialize this task (e.g. initialize ports or peripherals).
-                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
-				        
-                // Give your variables an initial value and other work during initialization - YOUR CODE HERE.
-                YourVariable1=11;
-                YourVariable2=22;
+                if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
+				       
+        /*
+                // Set the load we need to emulate and the maximum number of runs.
+                EmulateLoad=ExampleTask5_EMULATELOAD;
+                MaxNumberTaskStarts=ExampleTask5_MAXTASKSTARTS;
+                TaskStarts=0;
 
-                // For tasks that only respond to events (=messages) we can set the sleep attribute to ´true'.
+                if(EmulateLoad>0) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Warning - we're emulating load of %dms.", EmulateLoad);
+                if(MaxNumberTaskStarts>0) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Warning - system will stop after %d runs.", MaxNumberTaskStarts);                
+        */
+                // For tasks that only respond to events (=messages) we could set the sleep attribute to ´true'.
                 TISM_SchedulerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work.						
@@ -71,15 +71,9 @@ uint8_t TaskTemplate (TISM_Task ThisTask)
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
-                    case TISM_TEST: // Test packet, no action to take. Just enter a log entry.
-                                    TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "TISM_TEST message received from TaskID %d (HostID %d). No action taken.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
-                                    break;
                     case TISM_PING: // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
                                     TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Payload0,0);
                                     break;
- 
-                    // Other event types to process - YOUR CODE HERE.
-
                     default:        // Unknown message type - ignore.
                                     break;
                   }
@@ -87,14 +81,35 @@ uint8_t TaskTemplate (TISM_Task ThisTask)
                   MessageCounter++;
                 }
 
-                // Other work to do in this state - YOUR CODE HERE.
+                // Other work to do in this state.
+      /*
+                // Do we need to emulate a load?
+                if(EmulateLoad>0)
+                {
+                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Emulating load of %dms for task %s.", EmulateLoad, ThisTask.TaskName);
+                  sleep_ms (EmulateLoad);    
+                }
 
+                // Do we have a limit on task starts?
+                if(MaxNumberTaskStarts>0)
+                {
+                  TaskStarts++;
+                  if(TaskStarts>MaxNumberTaskStarts)
+                  {
+                    // Maximum reached - send a message to taskmanager to stop the system.
+                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Maximum number of runs (%d) reached; stopping.", MaxNumberTaskStarts);
+                    
+                    // Stop the system by requesting the TaskManager.
+                    TISM_SchedulerSetSystemState(ThisTask, STOP);
+                  }
+                  else
+                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Number of runs: %d.", TaskStarts);
+                }
+       */
 				        break;
 	  case STOP:  // Task required to stop this task.
 		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");
 		          
-                // All activities to stop this task - YOUR CODE HERE.
-                
                 // Set the task state to DOWN. 
                 TISM_SchedulerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
 		            break;					

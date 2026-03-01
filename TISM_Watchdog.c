@@ -23,13 +23,10 @@
 #include "TISM.h"
 
 
-// Internal data for this task
-struct TISM_WatchdogData
-{
-  uint64_t TimeRequestSent[MAX_TASKS], ResponseDelay, NextPingRound;
-  int DataRequestSent[MAX_TASKS];
-  int PingMessageCounter;
-} TISM_WatchdogData;
+// Static variables needed for this task to run.
+static uint64_t TimeRequestSent[MAX_TASKS], ResponseDelay, NextPingRound;
+static int DataRequestSent[MAX_TASKS];
+static int PingMessageCounter;
 
 
 /*
@@ -53,14 +50,14 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
     case INIT:  // Task required to initialize                
                 if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
 				        
-                TISM_WatchdogData.PingMessageCounter=0;
+                PingMessageCounter=0;
                 for(int counter=0; counter<MAX_TASKS; counter++)
                 {
-                  TISM_WatchdogData.TimeRequestSent[counter]=0;
-                  TISM_WatchdogData.DataRequestSent[counter]=-1;
+                  TimeRequestSent[counter]=0;
+                  DataRequestSent[counter]=-1;
                 }
-                TISM_WatchdogData.PingMessageCounter=0;
-                TISM_WatchdogData.NextPingRound=0;
+                PingMessageCounter=0;
+                NextPingRound=0;
 				        break;
 	  case RUN:   // Do the work						
 		      	    if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
@@ -72,27 +69,27 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                 {
                   MessageToProcess=TISM_PostmanTaskReadMessage(ThisTask);
 
-                  if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %d from TaskID %d (HostID %d) received.", MessageToProcess->Message, MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Message '%ld' type %s-0x%02X from TaskID %d (HostID %d) received.", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
+                    case TISM_TEST: // Test packet, no action to take. Just enter a log entry.
+                                    TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "TISM_TEST message received from TaskID %d (HostID %d). No action taken.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                    break;                    
                     case TISM_PING: // Reply to PING request.
-                                    TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Message,0);
-                                    break;
-                    case TISM_TEST: // This is mostly used for debugging purposes. Print a text to STDOUT.
-                                    if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Test message received from TaskID %d (HostID %d).", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                    TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Payload0,0);
                                     break;
                     case TISM_ECHO: // Echo reply to our ping request
                                     // Is this the reply to the last message we've sent to this task?
-                                    if(MessageToProcess->Message==TISM_WatchdogData.DataRequestSent[MessageToProcess->SenderTaskID])
+                                    if(MessageToProcess->Payload0==DataRequestSent[MessageToProcess->SenderTaskID])
                                     {
                                       // Correct response received; calculate the delay. Did the response exceed the maximum?
-                                      TISM_WatchdogData.ResponseDelay=time_us_64()-TISM_WatchdogData.TimeRequestSent[MessageToProcess->SenderTaskID];
+                                      ResponseDelay=time_us_64()-TimeRequestSent[MessageToProcess->SenderTaskID];
 
-                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Valid ECHO response received from %d (HostID %d), delay %ld.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, TISM_WatchdogData.ResponseDelay);
+                                      if (ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Valid ECHO response received from %d (HostID %d), delay %ld.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, ResponseDelay);
 
-                                      if(TISM_WatchdogData.ResponseDelay>WATCHDOG_TASK_TIMEOUT)
+                                      if(ResponseDelay>WATCHDOG_TASK_TIMEOUT)
                                       {
                                         // For now, only generate a warning.
                                         TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "ECHO response on PING request from %d (HostID %d) exceeded maximum delay (%d).", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, WATCHDOG_TASK_TIMEOUT);
@@ -100,7 +97,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                                     }
                                     else
                                     {
-                                      if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Invalid ECHO response received on PING request from %d (HostID %d); expected %ld, received %ld.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, TISM_WatchdogData.DataRequestSent[MessageToProcess->SenderTaskID], MessageToProcess->Message);
+                                      if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Invalid ECHO response received on PING request from %d (HostID %d); expected %ld, received %ld.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, DataRequestSent[MessageToProcess->SenderTaskID], MessageToProcess->Payload0);
                                     }
                                     break;
                     default:        // Unknown message type - ignore.
@@ -112,7 +109,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
 
                 // Now it's time to send out PING requests to tasks. Did we woke up early (message received)?
                 // If so, then wait - we don't want to flood the system.
-                if(time_us_64()>=TISM_WatchdogData.NextPingRound)
+                if(time_us_64()>=NextPingRound)
                 {
                   // Send out a PING request to all processes that do not sleep
                   for(MessageCounter=0;MessageCounter<System.NumberOfTasks;MessageCounter++)
@@ -120,19 +117,19 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
                     if((!System.Task[MessageCounter].TaskSleeping) && (System.Task[MessageCounter].TaskID!=ThisTask.TaskID))
                     {
                       // Send the PING message; store the time of sending and message, so we can check when we get a reply.
-                      TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,MessageCounter,TISM_PING,TISM_WatchdogData.PingMessageCounter,0);
+                      TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,MessageCounter,TISM_PING,PingMessageCounter,0);
 
                       if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Sent PING request to %d.", MessageCounter);
   
-                      TISM_WatchdogData.TimeRequestSent[MessageCounter]=time_us_64();
-                      TISM_WatchdogData.DataRequestSent[MessageCounter]=TISM_WatchdogData.PingMessageCounter;
-                      TISM_WatchdogData.PingMessageCounter++;
-                      if(TISM_WatchdogData.PingMessageCounter>=WATCHDOG_MAX_COUNTER)
-                        TISM_WatchdogData.PingMessageCounter=0;
+                      TimeRequestSent[MessageCounter]=time_us_64();
+                      DataRequestSent[MessageCounter]=PingMessageCounter;
+                      PingMessageCounter++;
+                      if(PingMessageCounter>=WATCHDOG_MAX_COUNTER)
+                        PingMessageCounter=0;
                     }
                   }
                   // Now calculate when we want to start the next round.
-                  TISM_WatchdogData.NextPingRound=time_us_64()+WATCHDOG_CHECK_INTERVAL;
+                  NextPingRound=time_us_64()+WATCHDOG_CHECK_INTERVAL;
                 }
 				        break;
 	  case STOP:  // Task required to stop
@@ -141,7 +138,7 @@ uint8_t TISM_Watchdog (TISM_Task ThisTask)
 				        // Tasks for stopping
 			          
                 // Set the task state to DOWN. 
-                TISM_TaskManagerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
+                TISM_SchedulerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_STATE,DOWN);
 		            break;					
   }
 		

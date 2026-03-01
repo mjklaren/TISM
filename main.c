@@ -2,7 +2,7 @@
   
   The main file of "The Incredible State Machine", starting point for the system.
 
-  Copyright (c) 2025 Maarten Klarenbeek (https://github.com/mjklaren)
+  Copyright (c) 2026 Maarten Klarenbeek (https://github.com/mjklaren)
   Distributed under the GPLv3 license
 
 */
@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
+#include "hardware/watchdog.h"
 
 #ifndef TISM_DISABLE_DUALCORE
 #include "pico/multicore.h"
@@ -23,6 +24,7 @@
 #include "ExampleTask2.c"
 #include "ExampleTask3.c"
 #include "ExampleTask4.c"
+#include "ExampleTask5.c"
 
 
 #ifndef TISM_DISABLE_DUALCORE
@@ -35,7 +37,7 @@ void StartCore2()
 #endif
 
 
-void main(void)
+int main(void)
 {
   // Initialize the TISM system.
   TISM_InitializeSystem();
@@ -43,28 +45,30 @@ void main(void)
   // Register the user tasks that do the actual work. When registering tasks the TaskName and Priority MUST be provided. 
   // Usage: TISM_RegisterTask(<pointer to function>,<short name>.<priority>)
   
-  if((TISM_RegisterTask(&ExampleTask1,"ExampleTask1",PRIORITY_NORMAL)+
-      TISM_RegisterTask(&ExampleTask2,"ExampleTask2",PRIORITY_NORMAL)+  
-      TISM_RegisterTask(&ExampleTask3,"ExampleTask3",PRIORITY_NORMAL)+
-      TISM_RegisterTask(&ExampleTask4,"ExampleTask4",PRIORITY_NORMAL))!=0)
+  if((TISM_RegisterTask(&ExampleTask1,"ExTask1",PRIORITY_NORMAL)+
+      TISM_RegisterTask(&ExampleTask2,"ExTask2",PRIORITY_NORMAL)+  
+      TISM_RegisterTask(&ExampleTask3,"ExTask3",PRIORITY_NORMAL)+
+      TISM_RegisterTask(&ExampleTask4,"ExTask4",PRIORITY_NORMAL)+
+      TISM_RegisterTask(&ExampleTask5,"ExTask5",PRIORITY_NORMAL))!=0)
   {
      // An error occured during registering of the tasks. Abort.
      fprintf(STDERR, "TISM: Error occured when registering a tasks. Stopping...\n");
-     exit;
-  };  
+     exit(1);
+  };
 
 #ifdef EXTREME_DEBUGGING
   // Extreme debugging; set all user tasks' debug levels to HIGH. Use with caution, this creates a LOT of messages!
+  System.SystemDebug=DEBUG_HIGH;
   for(int TaskCounter=0;TaskCounter<System.NumberOfTasks;TaskCounter++)
      System.Task[TaskCounter].TaskDebug=DEBUG_HIGH;
 #endif
 
   // Set debug-levels of individual tasks. Can be both system/TISM or user tasks. Use with caution, as it can generate A LOT of messages!
-  System.Task[TISM_GetTaskID("TISM_UartMX")].TaskDebug=DEBUG_HIGH;
-  //System.Task[TISM_GetTaskID("TISM_Postman")].TaskDebug=DEBUG_LOW;
-  //System.Task[TISM_GetTaskID("TISM_EventLogger")].TaskDebug=DEBUG_LOW;
-  //System.Task[TISM_GetTaskID("ExampleTask4")].TaskDebug=DEBUG_NONE;
-  //System.Task[TISM_GetTaskID("ExampleTask5")].TaskDebug=DEBUG_LOW;
+  //System.Task[TISM_GetTaskID("ExTask1")].TaskDebug=DEBUG_LOW;
+  //System.Task[TISM_GetTaskID("ExTask2")].TaskDebug=DEBUG_LOW;
+  //System.Task[TISM_GetTaskID("ExTask3")].TaskDebug=DEBUG_LOW;
+  //System.Task[TISM_GetTaskID("ExTask4")].TaskDebug=DEBUG_LOW;
+  //System.Task[TISM_GetTaskID("ExTask5")].TaskDebug=DEBUG_LOW;
 
 #ifndef TISM_DISABLE_DUALCORE  
   // Start up the 2nd core and fire up a 2nd TISM_Scheduler.
@@ -77,6 +81,20 @@ void main(void)
     fprintf(STDERR, "TISM: TISM Scheduler for CORE0 exited with error.\n");
   
   // Schedulers returned from execution; TISM stopped.
-  printf("TISM: Program completed.\n");
+  printf("TISM: Program completed, ");  
+  if(System.RebootAfterShutdown==true)
+  {
+    // Reboot the system using the RP watchdog.
+    printf("rebooting.\n");
+    fflush(stdout);
+    watchdog_reboot(0, 0, 1000);
+    while(1)
+    {
+      // Do nothing untill we reboot.
+    }
+  }
+  else
+    printf("safe to turn off.\n");
   sleep_ms(STARTUP_DELAY);
+  return(0);
 }
