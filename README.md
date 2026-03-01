@@ -51,15 +51,19 @@ TISM uses a priority mechanism based on the number of microseconds that have to 
 
 Altering these values will affect how CPU time is distributed between tasks. Pro tip; if you want all tasks to run on the same priority, but want to retain the scheduling features; set PRIORITY_HIGH (for example) to 10, PRIORITY_NORMAL to 20 and PRIORITY_LOW to 30.
 
+## Networking/message exchange between hosts
+TISM has an internal messaging system which is basically a core component for a lot of features (e.g. scheduling, IRQ handling). TISM now supports exchange of TISM-messages between hosts the UART. In this way 2 Picos can be connected directly, or multiple Picos can connect to the same network using TTL-to-Wifi devices like the DT-09. In TISM.h the unique HostID is set, along with other parameters like GPIO of the UART, baudrate etc. Unsurprisingly, HostIDs need to be unique in the network.
+A detailed description of the protocol can be found in de 'doc'-section.
+
 ## Tips for developing tasks
 To make the most effective use of TISM follow these few tips:
 - Break down activities into small components as much as possible.
 - Use the TISM messaging system to communicate between tasks and the TISM scheduler to plan events.
 - TISM provides an interrupt handler that allows multiple tasks to 'subscribe' to certain events on the GPIOs. Use this whenever possible to share the interrupt facility; as the Raspberry Pi Pico currently only supports one interrupt handler.
 - Prevent loops (e.g. 'do-while' and 'for') as much as possible. Allow a task to run as briefly as possible, end the run ('return') and trust that TISM will restart the task again.
-- As the Raspberry Pi Pico doesn't have a MCU and TISM doesn't store stack and heap, make use of global variables to maintain the state of your task. In the example tasks a struct is used for storing and retaining data across runs; using this naming convention guarantees that global variable names remain unique.
-- Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother.
-- You can set the debugging levels of the whole system and each task separately. Use this carefully; extensive logging can slow the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the handling of your tasks.
+- As the Raspberry Pi Pico doesn't have a MCU and TISM doesn't store stack and heap, make use of global and static variables to maintain the state of your task. In the example tasks 'static' variables are used for storing and retaining data across runs. Static variables retain their values across runs, but are not accessible for other code segments.
+- Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother. The provided (simple) consule also uses the EventLogger.
+- You can set the debugging levels of the whole system and each task separately. Check TISM_Console.c for example how to set. Use this carefully; extensive logging can slow the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the handling of your tasks.
 
 ## Change log - 260301
 - Removed some nasty bugs from the scheduler, added a couple of mutexes and critical code segments.
@@ -80,8 +84,13 @@ To make the most effective use of TISM follow these few tips:
 - Laid some groundwork for multi-host operation.
  
 ## Wish list:
+- Support for RS485 and 433Mhz devices in TISM_UartMX.c.
+- Support for Pico W and Wifi networking.
 - Rewrite of the EventLogger to switch from dynamic to static allocated memory for messages, to prevent memory fragmentation after (very) long runs.
-- Multi-host operation using Wifi or RS485.
+- Extend the TISM-messaging protocol to support the exchange of system related data (e.g. system time, unique ID etc.)
+- Adding 'promiscuous mode' to TISM_UartMX to debug message exchange between hosts.
+- The ability to turn 'network neighborhood' collection off.
+
 
 The source code is distributed under the GPLv3 license.
 
