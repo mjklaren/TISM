@@ -48,7 +48,7 @@ TISM uses a priority mechanism based on the number of microseconds that have to 
 - PRIORITY_HIGH            2500   - High priority task; time after which task should be restarted (in usec). 
 - PRIORITY_NORMAL          5000   - Normal priority task; time after which task should be restarted (in usec).
 - PRIORITY_LOW             10000  - Low priority task; time after which task should be restarted (in usec).
-Altering these values will affect how CPU time is distributed between tasks.
+Altering these values will affect how CPU time is distributed between tasks. Pro tip; if you want all tasks to run on the same priority, but want to retain the scheduling features; set PRIORITY_HIGH (for example) to 10, PRIORITY_NORMAL to 20 and PRIORITY_LOW to 30.
 
 ## Tips for developing tasks
 To make the most effective use of TISM follow these few tips:
