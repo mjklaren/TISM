@@ -58,6 +58,13 @@ To make the most effective use of TISM follow these few tips:
 - Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother.
 - You can set the debugging levels of the whole system and each task separately. Use this carefully; extensive logging slows the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the progress of your tasks.
 
+## Change log - 260301
+- Removed some nasty bugs from the scheduler, added a couple of mutexes and critical code segments.
+- Improved management of task attributes, improving handling of task property changes.
+- Added a "network" feature! TISM is now able to communicate with other Pi Picos via the UART (e.g. nullmodem or DT-09).
+- Added a network management task to build a 'network neighborhood' list, to resolve hostnames and tasknames.
+- Added a (simple) console to look 'under the hood' of TISM, using the USB/serial interface.
+
 ## Change log - 251024
 - Major rewrite and cleanup of the code.
 - Improved task switching and removed a bug where a task could run on both cores simultanously under low-load conditions.
@@ -69,7 +76,7 @@ To make the most effective use of TISM follow these few tips:
 - Laid some groundwork for multi-host operation.
  
 ## Wish list:
-- Rewrite of the EventLogger to switch from dynamic to static allocated memory for messages, to prevent memory fragmentation after long runs.
+- Rewrite of the EventLogger to switch from dynamic to static allocated memory for messages, to prevent memory fragmentation after (very) long runs.
 - Multi-host operation using Wifi or RS485.
 
 The source code is distributed under the GPLv3 license.
