@@ -11,6 +11,9 @@ I started developing TISM when I wanted to experiment with interacting with diff
 
 But still, TISM is only an easy way to jump between tasks and allow sharing of CPU capacity. There is no forced context switching; bad behaving code can still lock all task. So if you're looking for 'real' preemptive multitasking capabilities consider solutions like FreeRTOS.
 
+Interested in how TISM can be used? then meet [Matthijs, our first animatronic](https://github.com/mjklaren/Matthijs).
+
+
 ## Getting started with the example tasks
 The framework includes three example tasks that demonstrate some of the inner workings of TISM. The wiring is pretty simple; a single button acting as a pull-down connected to GPIO 15 (including an RC network to debounce, which is optional):
 
