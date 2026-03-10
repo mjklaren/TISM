@@ -40,7 +40,7 @@
 #include <string.h>
 #include "pico/stdlib.h"
 #include "pico/critical_section.h"
-#include "TISM.h"
+#include <TISM.h>
 
 
 
@@ -304,7 +304,7 @@ uint8_t TISM_SchedulerRunTask(uint8_t ThisCoreID, bool Forced)
     System.Task[System.RunPointer[ThisCoreID]].OutboundMessageQueue=System.OutboundMessageQueue[ThisCoreID];
     System.Task[System.RunPointer[ThisCoreID]].RunningOnCoreID=ThisCoreID;
 
-#ifndef TISM_DISABLE_DUAL_CORE
+#ifndef TISM_DISABLE_DUALCORE
     if(!Forced)
     {
       // Only one mutex acquire per task dispatch.
@@ -336,7 +336,7 @@ uint8_t TISM_SchedulerRunTask(uint8_t ThisCoreID, bool Forced)
     sleep_ms(RUN_STEP_BY_STEP_DELAY);
 #endif
 
-#ifndef TISM_DISABLE_DUAL_CORE
+#ifndef TISM_DISABLE_DUALCORE
     // Reset CorePointer without a second mutex acquire.
     // __dmb() ensures the write is visible to the other core before it next reads CorePointer under the mutex.
     __dmb();
@@ -395,7 +395,7 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                       // Initialise the critical section that guards all task-state fields. Must happen before any task runs or any helper function (SetTaskAttribute etc.) is called.
                       critical_section_init(&TaskStateLock);
 
-#ifndef TISM_DISABLE_DUAL_CORE
+#ifndef TISM_DISABLE_DUALCORE
                       mutex_init(&System.RunningTaskMutex);
                       System.CorePointer[CORE0]=0;
                       System.CorePointer[CORE1]=0;
