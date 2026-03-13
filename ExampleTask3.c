@@ -14,7 +14,7 @@
 
 */
 
-#include "TISM.h"
+#include <TISM.h>
 
 #define EXAMPLETASK3_TIMERINTERVAL 2500  // in msec
 #define EVENTID                    222   // Unique ID for the repetitive timer

@@ -11,7 +11,7 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include "TISM.h"
+#include <TISM.h>
 
 
 #ifndef TISM_DISABLE_UARTMX                                  // In case UartMX is disabled in TISM.h, to prevent compilation errors.

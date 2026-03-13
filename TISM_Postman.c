@@ -27,7 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "pico/stdlib.h"
-#include "TISM.h"
+#include <TISM.h>
 
 
 
@@ -104,9 +104,12 @@ bool TISM_PostmanWriteMessage(TISM_CircularBuffer *Buffer, uint8_t SenderHostID,
   if(Buffer!=NULL && Buffer->Data!=NULL && Buffer->Size>0 && Buffer->ElementSize>0)
   {
 #ifndef TISM_DISABLE_UARTMX
-    TISM_Message InData={SenderHostID,SenderTaskID,RecipientHostID,RecipientTaskID,MessageType,Payload0,Payload1,MessageTimestamp};
+    // First make sure RecipientHostID is not 0 ('localhost') unless our HostID is really 0 ("addressless-mode"). Else change to our HostID.
+    if(System.HostID!=0 && RecipientHostID==0)
+      RecipientHostID=System.HostID;
+    TISM_Message InData={SenderHostID, SenderTaskID, RecipientHostID, RecipientTaskID, MessageType, Payload0, Payload1, MessageTimestamp};
 #else    // UartMX disabled; only messages to and from this host
-    TISM_Message InData={System.HostID,SenderTaskID,System.HostID,RecipientTaskID,MessageType,Payload0,Payload1,MessageTimestamp};
+    TISM_Message InData={System.HostID, SenderTaskID, System.HostID, RecipientTaskID, MessageType, Payload0, Payload1, MessageTimestamp};
 #endif
     if(TISM_PostmanSlotsAvailable(Buffer)>0) 
     {

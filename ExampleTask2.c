@@ -15,7 +15,7 @@
   
 */
 
-#include "TISM.h"
+#include <TISM.h>
 
 #define EXAMPLETASK2_TIMEOUT_USEC 1000000
 #define LED_PIN                   25

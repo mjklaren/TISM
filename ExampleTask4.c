@@ -10,7 +10,7 @@
 
 */
 
-#include "TISM.h"
+#include <TISM.h>
 
 #define EXAMPLETASK4_EMULATELOAD   250  // Delay in msec; it will cause watchdog warnings when > WATCHDOG_TASK_TIMEOUT (in usec).
 #define EXAMPLETASK4_MAXTASKSTARTS 250  // Number of runs before stopping.

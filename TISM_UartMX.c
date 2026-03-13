@@ -12,7 +12,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "TISM.h"
+#include <TISM.h>
 
 
 #ifndef TISM_DISABLE_UARTMX          // In case UartMX is disabled in TISM.h, to prevent compilation errors.
@@ -926,8 +926,9 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
 
                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Processing message '%ld' type %s (0x%02X) from TaskID %d (HostID %d), addressed to TaskID %d (HostID %d).", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);
 
-                  // Is this a message that needs to be routed somewhere else?
-                  if(MessageToProcess->RecipientHostID!=System.HostID)
+                  // Is this a message that needs to be routed somewhere else? RecipientHostID cannot be 0 ('localhost').
+                  // We only route messages outbound when our Host ID is not 0 ('addressless-mode').
+                  if(System.HostID!=0 && MessageToProcess->RecipientHostID>0 && MessageToProcess->RecipientHostID!=System.HostID)
                   {
                     // This message needs to be sent via the UART
                     uint8_t Packet[UARTMX_MAX_PACKET_SIZE], Length;
@@ -966,8 +967,14 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                   }
                   else
                   {
-                    // Did we receive a packet for another TaskID? If it is routed here, it's a stray packet.
-                    if(MessageToProcess->RecipientTaskID!=ThisTask.TaskID)
+                    // Did we capture an outbound packet, but we do not have a valid HostID?
+                    if(System.HostID==0)
+                    {
+                      // We're in adressless-mode. Drop the packet.
+                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Dropping utbound message as we're in addressless-mode; '%ld' type %s (0x%02X) from TaskID %d (HostID %d) received, addressed to TaskID %d (HostID %d).", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);
+                    }
+                    else                    
+                    if(MessageToProcess->RecipientTaskID!=ThisTask.TaskID || MessageToProcess->RecipientHostID==0)  // Did we receive a packet for another TaskID? If it is routed here, it's a stray packet.
                     {
                       // This shouldn't happen!
                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Stray message received; '%ld' type %s (0x%02X) from TaskID %d (HostID %d) received, addressed to TaskID %d (HostID %d).", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);

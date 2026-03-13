@@ -12,7 +12,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "pico/unique_id.h"
-#include "TISM.h"
+#include <TISM.h>
 
 
 // THE global variable - the struct containing the entire TISM-system.
@@ -181,6 +181,29 @@ uint8_t TISM_GetTaskID(char *TaskName)
     if(strncmp(System.Task[Counter].TaskName, TaskName, MAX_TASK_NAME_LENGTH)==0)
       TaskID=Counter;
   return(TaskID);
+}
+
+
+/*
+  Description 
+  Get the Taskname for the task specified by TaskID.
+
+  Parameters:
+  uint8_t TaskID - Identifier of the task.
+
+  Return value:
+  NULL           - Not found or invalid TaskID.
+  const char *   - Pointer to taskname
+*/
+const char *TISM_GetTaskname(uint8_t TaskID)
+{
+  if((TaskID>=0) && (TaskID<System.NumberOfTasks))
+  {
+    // It is a valid, registered TaskID.
+    return(System.Task[TaskID].TaskName);
+  }
+  else
+    return (NULL);
 }
 
 

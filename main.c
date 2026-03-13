@@ -17,7 +17,8 @@
 #include "pico/multicore.h"
 #endif
 
-#include "TISM.h"
+#include <TISM.h>
+
 
 // The different user tasks to be included here.
 #include "ExampleTask1.c"

@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include "pico/stdlib.h"
-#include "TISM.h"
+#include <TISM.h>
 
 
 #ifndef TISM_DISABLE_SCHEDULER   // In case the scheduler is disabled in TISM.h, to prevent compilation errors.

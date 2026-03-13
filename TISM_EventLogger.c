@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
-#include "TISM.h"
+#include <TISM.h>
 
 
 /*
@@ -104,7 +104,7 @@ uint8_t TISM_EventLogger (TISM_Task ThisTask)
                   // Process the message and delete it.
                   switch(MessageToProcess->MessageType)
                   {
-                    case TISM_TEST:             // Test package; log it's reception and do nothing.
+                    case TISM_TEST:             // Test packet; log it's reception and do nothing.
                                                 fprintf(STDOUT, "%llu %s (T:%d,H:%d): TISM_TEST message received from TaskID %d (HostID %d). No action taken.\n", MessageToProcess->MessageTimestamp, System.Task[MessageToProcess->SenderTaskID].TaskName, ThisTask.TaskID, System.HostID, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
                                                 break;
                     case TISM_PING:             // Check if this process is still alive. Reply with a ECHO message type; return same message payload.

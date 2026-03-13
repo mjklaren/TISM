@@ -10,7 +10,7 @@
 
 */
 
-#include "TISM.h"
+#include <TISM.h>
 
 #define EXAMPLE1GPIO       15
 #define EXAMPLE1ANTIBOUNCE 0  // in usec
