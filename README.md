@@ -68,6 +68,11 @@ To make the most effective use of TISM follow these few tips:
 - Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother. The provided (simple) consule also uses the EventLogger.
 - You can set the debugging levels of the whole system and each task separately. Check TISM_Console.c for example how to set. Use this carefully; extensive logging can slow the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the handling of your tasks.
 
+## Change log - 260313
+- Made some small changes to the source files to prevent compilation errors.
+- Made some small changes to the message routing functionality.
+- Added the capability for 'addressless' messaging; when HostID is 0, still being able to receive broadcasts only.
+
 ## Change log - 260301
 - Removed some nasty bugs from the scheduler, added a couple of mutexes and critical code segments.
 - Improved management of task attributes, improving handling of task property changes.
