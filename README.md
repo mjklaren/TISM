@@ -2,9 +2,9 @@
 
 ![TISM_mini](https://github.com/mjklaren/TISM/assets/127024801/c5aa2888-e35b-4955-86ff-b8fce6673e07) 
 
-TISM is a framework for developing tasks that can run concurrently on a Raspberry Pi Pico (or compatible microcontroller using the RP2040, RP2350 and clones) by applying cooperative multitasking techniques. The framework supports multicore use, consists of different elements to control task scheduling, interrupt handling, interprocess messaging, event logging and software timers. The source code also includes example applications to demonstrate how the different components work, as well as a template to help you to quickly build your own tasks.
+TISM is a framework for developing tasks in C that can run concurrently on a Raspberry Pi Pico (or compatible microcontroller using the RP2040, RP2350 and clones) by applying cooperative multitasking techniques. The framework supports multicore use, consists of different elements to control task scheduling, interrupt handling, interprocess messaging, event logging and software timers. The source code also includes example applications to demonstrate how the different components work, as well as a template to help you to quickly build your own tasks.
 
-Please note that TISM is not an operating system. It does not provide a filesystem, it does not manage hardware resources (except CPU time) or switch contexts. Furthermore, all elements of the system can be modified with little safeguards and poor behaving tasks will affect the whole system. But with a little discipline it will allow you to quickly develop multiple tasks that run concurrently on both cores of your RP2040 microcontroller.
+Please note that TISM is not an operating system. It does not provide a filesystem, it does not manage hardware resources (except CPU time and IRQ handling) or switch contexts. Furthermore, all elements of the system can be modified with little safeguards and poor behaving tasks will affect the whole system. But with a little discipline it will allow you to quickly develop multiple tasks that run concurrently on both cores of your RP2040/RP2350 microcontroller.
 
 ## Why TISM?
 I started developing TISM when I wanted to experiment with interacting with different devices from my Raspberry Pi Pico (leds, relais, sensors, motors) but realized that the Pico can only run one task at a time. And for most activities (e.g. waiting on a keypress, adjusting the PWM) a dual core 125Mhz processor provides way more capacity than that is actually used. What originally started as a few routinges to jump between sections of code gradually grew to the framework that it is today. The framework provides a way to quickly get going and with little overhead, while lots of parts can be tuned to meet your specific use case. 
@@ -60,6 +60,8 @@ Altering these values will affect how CPU time is distributed between tasks. Pro
 TISM has an internal messaging system which is basically a core component for a lot of features (e.g. scheduling, IRQ handling). TISM now supports exchange of TISM-messages between hosts the UART. In this way 2 Picos can be connected directly, or multiple Picos can connect to the same network using TTL-to-Wifi devices like the DT-09. In TISM.h the unique HostID is set, along with other parameters like GPIO of the UART, baudrate etc. Unsurprisingly, HostIDs need to be unique in the network.
 A detailed description of the protocol [can be found in de 'doc'-section](https://github.com/mjklaren/TISM/tree/main/doc).
 
+For more details of the TISM framework check the [Wiki pages!](https://github.com/mjklaren/TISM/wiki)
+
 ## Tips for developing tasks
 To make the most effective use of TISM follow these few tips:
 - Break down activities into small components as much as possible.
@@ -67,7 +69,7 @@ To make the most effective use of TISM follow these few tips:
 - TISM provides an interrupt handler that allows multiple tasks to 'subscribe' to certain events on the GPIOs. Use this whenever possible to share the interrupt facility; as the Raspberry Pi Pico currently only supports one interrupt handler.
 - Prevent loops (e.g. 'do-while' and 'for') as much as possible. Allow a task to run as briefly as possible, end the run ('return') and trust that TISM will restart the task again.
 - As the Raspberry Pi Pico doesn't have a MCU and TISM doesn't store stack and heap, make use of global and static variables to maintain the state of your task. In the example tasks 'static' variables are used for storing and retaining data across runs. Static variables retain their values across runs, but are not accessible for other code segments.
-- Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother. The provided (simple) consule also uses the EventLogger.
+- Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother. The provided (simple) console also uses the EventLogger.
 - You can set the debugging levels of the whole system and each task separately. Check TISM_Console.c for example how to set. Use this carefully; extensive logging can slow the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the handling of your tasks.
 
 ## Change log - 260313
