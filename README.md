@@ -13,6 +13,8 @@ But still, TISM is only an easy way to jump between tasks and allow sharing of C
 
 Interested in how TISM can be used? then meet [Matthijs, our first animatronic](https://github.com/mjklaren/Matthijs).
 
+## Documentation
+Detailed documentation of TISM can be found in the [Wiki pages!](https://github.com/mjklaren/TISM/wiki)
 
 ## Getting started with the example tasks
 The framework includes three example tasks that demonstrate some of the inner workings of TISM. The wiring is pretty simple; a single button acting as a pull-down connected to GPIO 15 (including an RC network to debounce, which is optional):
