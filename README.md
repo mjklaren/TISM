@@ -72,6 +72,10 @@ To make the most effective use of TISM follow these few tips:
 - Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother. The provided (simple) console also uses the EventLogger.
 - You can set the debugging levels of the whole system and each task separately. Check TISM_Console.c for example how to set. Use this carefully; extensive logging can slow the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the handling of your tasks.
 
+## Change log - 260321
+- Resolved a nasty bug that prevented tasks from going to sleep in single-core mode.
+- Clarified sleep/wake behavior; when tasks go to sleep they can only be woken up by incoming messages or incoming timers. Other option for delayed task execution is to set the TaskWakeUpTimer manually, but keep the sleep attribute to false.
+
 ## Change log - 260313
 - Made some small changes to the source files to prevent compilation errors.
 - Made some small changes to the message routing functionality.
