@@ -74,7 +74,7 @@ To make the most effective use of TISM follow these few tips:
 
 ## Change log - 260321
 - Resolved a nasty bug that prevented tasks from going to sleep in single-core mode.
-- Clarified sleep/wake behavior; when tasks go to sleep they can only be woken up by incoming messages or incoming timers. Other option for delayed task execution is to set the TaskWakeUpTimer manually, but keep the sleep attribute to false.
+- Clarified sleep/wake behavior; when tasks go to sleep they can only be woken up by incoming messages or incoming timers. Delayed task execution can be set using the TaskWakeUpTimer attribute while keeping the TaskSleep attribute to false.
 
 ## Change log - 260313
 - Made some small changes to the source files to prevent compilation errors.
