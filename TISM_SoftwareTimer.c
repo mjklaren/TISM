@@ -265,7 +265,7 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                 FirstTimerEventUsec=0;
                 SequenceCounter=0;
 
-                // Go to sleep; we only wake after incoming messages. 
+                // Go to sleep; initially we only wake after incoming messages. 
                 TISM_SchedulerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
 				        break;
 	  case RUN:   // Do the work						
@@ -347,7 +347,7 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
 
                 // Work to do in this state.
                 // Run through the list and check which timers expired and when the next timer expires. 
-                // Set the WakeUpTimer accordingly. Then put the task back to sleep.
+                // Set the WakeUpTimer accordingly. 
                 if(Entries!=NULL)
                 {
                   uint64_t RunTimestamp=time_us_64();
@@ -410,8 +410,8 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                   }
                 }
 
-                // All done, go to sleep. Wake up time is set according to the next pending timer event.
-                TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_SLEEP, true);
+                // All done, wake up time is set according to the next pending timer event.
+                //TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_SLEEP, true);
                 break;
 	  case STOP:  // Task required to stop
 		            if (ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Stopping.");

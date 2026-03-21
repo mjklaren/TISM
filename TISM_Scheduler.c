@@ -150,9 +150,13 @@ uint8_t TISM_SchedulerSetTaskAttribute(TISM_Task ThisTask, uint8_t TargetTaskID,
                                         }
                                         else
                                         {
+                                          /*
                                           // Go to sleep. Is a wake-up timer set in the past? If so, then set it to 0, so TISM_Scheduler knows there is no wake-up time.
                                           if(System.Task[TargetTaskID].TaskWakeUpTimer<time_us_64())
                                             System.Task[TargetTaskID].TaskWakeUpTimer=0;
+                                          */
+                                          // When sleeping, set the TaskWakeUpTimer to 0.
+                                          System.Task[TargetTaskID].TaskWakeUpTimer=0;
                                           System.Task[TargetTaskID].TaskSleeping=true;
                                         }
                                         critical_section_exit(&TaskStateLock);
@@ -554,8 +558,8 @@ uint8_t TISM_Scheduler(uint8_t ThisCoreID)
                       critical_section_enter_blocking(&TaskStateLock);
                       TaskPriority=System.Task[System.RunPointer[ThisCoreID]].TaskPriority;  
                       TaskWakeUpTimer=System.Task[System.RunPointer[ThisCoreID]].TaskWakeUpTimer;
-                      if(TaskWakeUpTimer>0 && TaskWakeUpTimer<=RunTimestamp)
-                        System.Task[System.RunPointer[ThisCoreID]].TaskSleeping=false;
+                      //if(TaskWakeUpTimer>0 && TaskWakeUpTimer<=RunTimestamp)
+                      //  System.Task[System.RunPointer[ThisCoreID]].TaskSleeping=false;
                       TaskSleeping=System.Task[System.RunPointer[ThisCoreID]].TaskSleeping;
                       critical_section_exit(&TaskStateLock);
 

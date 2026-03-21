@@ -545,7 +545,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                 uart_set_irq_enables(UARTMX_UARTID,true,false);
     
                 // This task is executed by the scheduler only if incoming data is received.
-                TISM_SchedulerSetMyTaskAttribute(ThisTask,TISM_SET_TASK_SLEEP,true);
+                TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_SLEEP, true);
 				        break;
 	  case RUN:   // Do the work.		
                 if(ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Doing work with priority %d on core %d.", ThisTask.TaskPriority, ThisTask.RunningOnCoreID);
@@ -1023,6 +1023,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                 // Any packets incoming packets on the UART or messages pending?
                 if(TISM_UartMXPacketsWaiting()==0 && TISM_PostmanTaskMessagesWaiting(ThisTask)==0)
                 {
+                  // Still messages left in the outbound message queue?
                   if(TISM_UartMXProcessRetries(ThisTask)>0)
                   {
                     // Retry-buffer active; calculate the earliest wakeup time.
@@ -1038,7 +1039,8 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                     }
                     TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_WAKEUPTIME, EarliestWakeup);
                   }
-                  TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_SLEEP, true);
+                  else
+                    TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_SLEEP, true);  // No messages in retrybuffer, go to sleep.
                 }
 				        break;
 	  case STOP:  // Task required to stop this task.
