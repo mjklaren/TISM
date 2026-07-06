@@ -34,9 +34,9 @@
 // Structure of the linear list containing all software timers.
 struct TISM_SoftwareTimerEntry
 {
-  uint8_t TaskID, TimerID;
+  uint8_t HostID, TaskID, TimerID;
   bool RepetitiveTimer;
-  uint32_t TimerIntervalMsec, SequenceNr;
+  uint32_t TimerIntervalMsec, SequenceNr, Parameter;
   uint64_t NextTimerEventUsec;
   struct TISM_SoftwareTimerEntry *NextEvent;
 };
@@ -162,34 +162,45 @@ bool TISM_SoftwareTimerVirtualExpired(uint64_t TimerUsec)
   Create a SoftwareTimerEntry struct and send a message to TISM_SoftwareTimer in order to register a new timer.
   As the RP2040 doesn´t have a realtime clock the specified time is measured in usec from 'NOW'. When the timer
   expires, the software timer will sent a message to the requesting task of message type 'TimerID'.
+  This function allows the HostID and TaskID to be specified, so wake-up messagens can be send to "external"
+  processes (other TaskIDs or tasks running on other HostIDs).
 
   Parameters:
   TISM_Task ThisTask         - Struct containing all task related information.
-  uint8_t MessageLabel       - The MessageType (=label) that will be used when a message is sent
+  uint8_t HostID             - HostID the task that needs to be notified is running on.
+  uint8_t TaskID             - TaskID of the task that needs to be notified.
   uint8_t TimerID            - The identifier for this specific timer (unique for this Task ID).
+  uint32_t Parameter         - Parameter to be sent to the task (Payload1) when the timer expires.
   bool RepetitiveTimer       - Repetitive timer (true/false)
   uint32_t TimerIntervalMsec - Time in milliseconds when timer should expire (measured from 'NOW').
 
   Return value:
   0                          - Failure to set timer (e.g. memory allocation failure)
   uint32_t SequenceNr        - Sequence number for this entry
+
+  When the timer expires, TISM_SoftwareTimer will send a message to the specified HostID/TaskID with the following data:
+  - MessageType = <TimerID> specified by user
+  - Payload1    = <SequenceNr> assigned by TISM_SoftwareTimer
+  - Payload2    = <Parameter> specified by user
 */
-uint32_t TISM_SoftwareTimerSet(TISM_Task ThisTask, uint8_t TimerID, bool RepetitiveTimer, uint32_t TimerIntervalMsec)
+uint32_t TISM_SoftwareTimerSetExternal(TISM_Task ThisTask, uint8_t HostID, uint8_t TaskID, uint8_t TimerID, uint32_t Parameter, bool RepetitiveTimer, uint32_t TimerIntervalMsec)
 {
   struct TISM_SoftwareTimerEntry *EntryPointer=malloc(sizeof(struct TISM_SoftwareTimerEntry));
   if(EntryPointer!=NULL)
   {
     SequenceCounter++; 
     if(SequenceCounter==0) 
-      SequenceCounter=1;                        // Skip zero, in case of wrap-around after a looooong time...
-    EntryPointer->TaskID=ThisTask.TaskID;
+      SequenceCounter=1;                                                                      // Skip zero, this is our error code.
+    EntryPointer->HostID=(HostID==0?System.HostID:HostID);                                    // To prevent HostID is zero, unless in address-less mode.      
+    EntryPointer->TaskID=((TaskID==0 || TaskID>=System.NumberOfTasks)?ThisTask.TaskID:TaskID); // To prevent that TaskID is zero/invalid.
     EntryPointer->SequenceNr=SequenceCounter;
     EntryPointer->TimerID=TimerID;
+    EntryPointer->Parameter=Parameter;
     EntryPointer->RepetitiveTimer=RepetitiveTimer;
     EntryPointer->TimerIntervalMsec=TimerIntervalMsec;
     EntryPointer->NextTimerEventUsec=time_us_64()+(TimerIntervalMsec*1000);
     EntryPointer->NextEvent=NULL;
-    if(!TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_SoftwareTimerTaskID,TISM_SET_TIMER,(uint32_t)EntryPointer,0))
+    if(!TISM_PostmanTaskWriteMessage(ThisTask, System.HostID, System.TISM_SoftwareTimerTaskID, TISM_SET_TIMER, (uint32_t)EntryPointer, 0))
     {
       free(EntryPointer);
       SequenceCounter--;  // Roll back sequence counter as this timer was not succesfully registered.
@@ -208,6 +219,72 @@ uint32_t TISM_SoftwareTimerSet(TISM_Task ThisTask, uint8_t TimerID, bool Repetit
 
 /*
   Description
+  Create a SoftwareTimerEntry struct and send a message to TISM_SoftwareTimer in order to register a new timer.
+  As the RP2040 doesn´t have a realtime clock the specified time is measured in usec from 'NOW'. When the timer
+  expires, the software timer will sent a message to the requesting task of message type 'TimerID'.
+  Note: we're reusing TISM_SoftwareTimerSetExternal here.
+
+  Parameters:
+  TISM_Task ThisTask         - Struct containing all task related information.
+  uint8_t TimerID            - The identifier for this specific timer (unique for this Task ID).
+  uint32_t Parameter         - Parameter to be sent to the task (Payload1) when the timer expires.
+  bool RepetitiveTimer       - Repetitive timer (true/false)
+  uint32_t TimerIntervalMsec - Time in milliseconds when timer should expire (measured from 'NOW').
+
+  Return value:
+  0                          - Failure to set timer (e.g. memory allocation failure)
+  uint32_t SequenceNr        - Sequence number for this entry
+
+  When the timer expires, TISM_SoftwareTimer will send a message to the calling task (specified by ThisTask) 
+  with the following data:
+  - MessageType = <TimerID> specified by user
+  - Payload1    = <SequenceNr> assigned by TISM_SoftwareTimer
+  - Payload2    = <Parameter> specified by user
+*/
+uint32_t TISM_SoftwareTimerSet(TISM_Task ThisTask, uint8_t TimerID, uint32_t Parameter, bool RepetitiveTimer, uint32_t TimerIntervalMsec)
+{
+ return(TISM_SoftwareTimerSetExternal(ThisTask, System.HostID, ThisTask.TaskID, TimerID, Parameter, RepetitiveTimer, TimerIntervalMsec));
+}
+
+
+/*
+  Description:
+  Modify the destination HostID for a specific timer.
+
+  Parameters:
+  uint32_t SequenceNr  - Sequence number for this timer.
+  uint8_t TargetHostID - The new HostID.
+
+  Return value:
+  True  - Success delivering request
+  False - Failure delivering request
+*/
+bool TISM_SoftwareTimerModifyHostID(TISM_Task ThisTask, uint32_t SequenceNr, uint8_t TargetHostID)
+{
+  return(TISM_PostmanTaskWriteMessage(ThisTask, System.HostID, System.TISM_SoftwareTimerTaskID, TISM_MODIFY_TIMER_HOSTID, SequenceNr, TargetHostID));
+}
+
+
+/*
+  Description:
+  Modify the destination TaskID for a specific timer.
+
+  Parameters:
+  uint32_t SequenceNr  - Sequence number for this timer.
+  uint8_t TargetTaskID - The new TaskID.
+
+  Return value:
+  True  - Success delivering request
+  False - Failure delivering request
+*/
+bool TISM_SoftwareTimerModifyTaskID(TISM_Task ThisTask, uint32_t SequenceNr, uint8_t TargetTaskID)
+{
+  return(TISM_PostmanTaskWriteMessage(ThisTask, System.HostID, System.TISM_SoftwareTimerTaskID, TISM_MODIFY_TIMER_TASKID, SequenceNr, TargetTaskID));
+}
+
+
+/*
+  Description
   Cancel a specific timer - erase the entry from the linear list.
   
   Parameters:
@@ -215,7 +292,8 @@ uint32_t TISM_SoftwareTimerSet(TISM_Task ThisTask, uint8_t TimerID, bool Repetit
   uint8_t TimerID         - Unique ID of the timer to cancel.
 
   Return value:
-  none
+  True  - Success delivering request
+  False - Failure delivering request
 */
 bool TISM_SoftwareTimerCancel(TISM_Task ThisTask, uint8_t TimerID)
 {
@@ -283,63 +361,117 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                   // Processed the message; delete it.
                   switch(MessageToProcess->MessageType)
                   {
-                    case TISM_TEST:               // Test packet, no action to take. Just enter a log entry.
-                                                  TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "TISM_TEST message received from TaskID %d (HostID %d). No action taken.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
-                                                  break;                    
-                    case TISM_PING:               // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
-                                                  TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Payload0,0);
-                                                  break;
-                    case TISM_CANCEL_TIMER:       // Cancel an existing timer
-                                                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Cancellation received for software timer %d from TaskID %d (HostID %d).", MessageToProcess->Payload0, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                    case TISM_TEST:                // Test packet, no action to take. Just enter a log entry.
+                                                   TISM_EventLoggerLogEvent(ThisTask, TISM_LOG_EVENT_NOTIFY, "TISM_TEST message received from TaskID %d (HostID %d). No action taken.", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                                   break;                    
+                    case TISM_PING:                // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
+                                                   TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Payload0,0);
+                                                   break;
+                    case TISM_MODIFY_TIMER_HOSTID: {
+                                                     // Modify the target HostID of a timer entry.
+                                                     if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "HostID modification received for software timer with Sequence Nr %d from TaskID %d (HostID %d).", MessageToProcess->Payload0, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                                      
+                                                     struct TISM_SoftwareTimerEntry *SearchPointer=Entries, *PreviousSearchPointer=SearchPointer;
+                                                     while(SearchPointer!=NULL)
+                                                     {
+                                                       // Search for the timer with the specified Task and timer ID and remove it from the linear list.
+                                                       if(SearchPointer->SequenceNr==MessageToProcess->Payload0)
+                                                       {
+                                                         // Entry found, update the HostID.
+                                                         SearchPointer->HostID=(uint8_t)MessageToProcess->Payload1;
 
-                                                  if(Entries!=NULL)
-                                                  {
-                                                    TISM_SoftwareTimerCancelTimer(MessageToProcess->SenderTaskID, MessageToProcess->Payload0);
+                                                         if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Entry with Sequence Nr %d found and updated. New HostID is %d.", MessageToProcess->Payload0, MessageToProcess->Payload1);
+                                                         break; // Entry found; we're done.
+                                                       }
+                                                       else
+                                                       {
+                                                         // Evaluate the next record
+                                                         PreviousSearchPointer=SearchPointer;
+                                                         SearchPointer=SearchPointer->NextEvent;
+                                                       }
 
-                                                    if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer %d from TaskID %d removed.", MessageToProcess->Payload0, MessageToProcess->SenderTaskID);
-                                                  }
-                                                  else
-                                                  {
-                                                    // Cancel-timer message received, but list is empty.
-                                                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Cancellation received for Timer ID %D (TaskID %d, HostID %d) but no timers registered. Ignoring.", MessageToProcess->Payload0, MessageToProcess->Payload1,  MessageToProcess->SenderHostID);
-                                                  }
-                                                  break;
-                    case TISM_CANCEL_TIMER_BY_NR: // Cancel an existing timer, specified by sequence number.
-                                                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Cancellation received for software timer with Sequence Nr %d, sent by TaskID %d (HostID %d).", MessageToProcess->Payload0, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                                       if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Entry with Sequence number %d not found.", MessageToProcess->Payload0);
+                                                     }
+                                                   }
+                                                   break;                                                  
+                    case TISM_MODIFY_TIMER_TASKID: {
+                                                     // Modify the target TaskID of a timer entry.
+                                                     if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "TaskID modification received for software timer with Sequence Nr %d from TaskID %d (HostID %d).", MessageToProcess->Payload0, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                                     
+                                                     struct TISM_SoftwareTimerEntry *SearchPointer=Entries, *PreviousSearchPointer=SearchPointer;
+                                                     while(SearchPointer!=NULL)
+                                                     {
+                                                       // Search for the timer with the specified Task and timer ID and remove it from the linear list.
+                                                       if(SearchPointer->SequenceNr==MessageToProcess->Payload0)
+                                                       {
+                                                         // Entry found, update the HostID.
+                                                         SearchPointer->TaskID=(uint8_t)MessageToProcess->Payload1;
 
-                                                  if(Entries!=NULL)
-                                                  {
-                                                    TISM_SoftwareTimerCancelTimerBySequenceNr(MessageToProcess->Payload0);
+                                                         if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Entry with Sequence Nr %d found and updated. New TaskID is %d.", MessageToProcess->Payload0, MessageToProcess->Payload1);
+                                                         break; // Entry found; we're done.
+                                                       }
+                                                       else
+                                                       {
+                                                         // Evaluate the next record
+                                                         PreviousSearchPointer=SearchPointer;
+                                                         SearchPointer=SearchPointer->NextEvent;
+                                                       }
 
-                                                    if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer with Sequence Nr %d removed.", MessageToProcess->Payload0);
-                                                  }
-                                                  else
-                                                  {
-                                                    // Cancel-timer message received, but list is empty.
-                                                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Cancellation received for Sequence Nr %D (TaskID %d, HostID %d) but no timers registered. Ignoring.", MessageToProcess->Payload0, MessageToProcess->Payload1,  MessageToProcess->SenderHostID);
-                                                  }
-                                                  break;                                             
-                    case TISM_SET_TIMER:          // Set a new timer. Add the new entry at the beginning of the linear list. 
-                                                  // Warning - no checking for duplicate entries!
-                                                  if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "New software timer entry received from task ID %d (HostID %d).", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+                                                       if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Entry with Sequence number %d not found.", MessageToProcess->Payload0);
+                                                     } 
+                                                   }                   
+                                                   break;
+                    case TISM_CANCEL_TIMER:        // Cancel an existing timer
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Cancellation received for software timer %d from TaskID %d (HostID %d).", MessageToProcess->Payload0, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
 
-                                                  struct TISM_SoftwareTimerEntry *SearchPointer=(struct TISM_SoftwareTimerEntry *)MessageToProcess->Payload0;
-                                                  SearchPointer->NextEvent=Entries;
-                                                  Entries=SearchPointer;
-                                                  break;
-                    case TISM_DISPLAY_TIMERS:     // Display active timers in the event log.
-                                                  struct TISM_SoftwareTimerEntry *LogSearchPointer=Entries;
-                                                  TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer entries:");
-                                                  TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "=======================");                                      
-                                                  while(LogSearchPointer!=NULL)
-                                                  {
-                                                    TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "TaskID: %d, Timer ID %d, Sequence Nr %d, %srepetitive, interval %d msec, next event %llu.", LogSearchPointer->TaskID, LogSearchPointer->TimerID, LogSearchPointer->SequenceNr, (LogSearchPointer->RepetitiveTimer?"":"non-"), LogSearchPointer->TimerIntervalMsec, LogSearchPointer->NextTimerEventUsec);
-                                                    LogSearchPointer=LogSearchPointer->NextEvent;
-                                                  }
-                                                  TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "List complete. Next event: %llu.", FirstTimerEventUsec);
-                                                  break;
-                    default:                      // Unknown message type - ignore.
-                                                  break;
+                                                   if(Entries!=NULL)
+                                                   {
+                                                     TISM_SoftwareTimerCancelTimer(MessageToProcess->SenderTaskID, MessageToProcess->Payload0);
+
+                                                     if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer %d from TaskID %d removed.", MessageToProcess->Payload0, MessageToProcess->SenderTaskID);
+                                                   }
+                                                   else
+                                                   {
+                                                     // Cancel-timer message received, but list is empty.
+                                                     TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Cancellation received for Timer ID %D (TaskID %d, HostID %d) but no timers registered. Ignoring.", MessageToProcess->Payload0, MessageToProcess->Payload1,  MessageToProcess->SenderHostID);
+                                                   }
+                                                   break;
+                    case TISM_CANCEL_TIMER_BY_NR:  // Cancel an existing timer, specified by sequence number.
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Cancellation received for software timer with Sequence Nr %d, sent by TaskID %d (HostID %d).", MessageToProcess->Payload0, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+
+                                                   if(Entries!=NULL)
+                                                   {
+                                                     TISM_SoftwareTimerCancelTimerBySequenceNr(MessageToProcess->Payload0);
+
+                                                     if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer with Sequence Nr %d removed.", MessageToProcess->Payload0);
+                                                   }
+                                                   else
+                                                   {
+                                                     // Cancel-timer message received, but list is empty.
+                                                     TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Cancellation received for Sequence Nr %D (TaskID %d, HostID %d) but no timers registered. Ignoring.", MessageToProcess->Payload0, MessageToProcess->Payload1,  MessageToProcess->SenderHostID);
+                                                   }
+                                                   break;                                             
+                    case TISM_SET_TIMER:           // Set a new timer. Add the new entry at the beginning of the linear list. 
+                                                   // Warning - no checking for duplicate entries!
+                                                   if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "New software timer entry received from task ID %d (HostID %d).", MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID);
+
+                                                   struct TISM_SoftwareTimerEntry *SearchPointer=(struct TISM_SoftwareTimerEntry *)MessageToProcess->Payload0;
+                                                   SearchPointer->NextEvent=Entries;
+                                                   Entries=SearchPointer;
+                                                   break;
+                    case TISM_DISPLAY_TIMERS:      // Display active timers in the event log.
+                                                   struct TISM_SoftwareTimerEntry *LogSearchPointer=Entries;
+                                                   TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Software timer entries:");
+                                                   TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "=======================");                                      
+                                                   while(LogSearchPointer!=NULL)
+                                                   {
+                                                     TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "TaskID: %d, Timer ID %d, Sequence Nr %d, %srepetitive, interval %d msec, next event %llu.", LogSearchPointer->TaskID, LogSearchPointer->TimerID, LogSearchPointer->SequenceNr, (LogSearchPointer->RepetitiveTimer?"":"non-"), LogSearchPointer->TimerIntervalMsec, LogSearchPointer->NextTimerEventUsec);
+                                                     LogSearchPointer=LogSearchPointer->NextEvent;
+                                                   }
+                                                   TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "List complete. Next event: %llu.", FirstTimerEventUsec);
+                                                   break;
+                    default:                       // Unknown message type - ignore.
+                                                   break;
                   }
                   TISM_PostmanTaskDeleteMessage(ThisTask);
                   MessageCounter++;
@@ -361,7 +493,13 @@ uint8_t TISM_SoftwareTimer (TISM_Task ThisTask)
                       // Timer expired, send out notification. If it's not repetitive, remove the entry.
                       if(ThisTask.TaskDebug==DEBUG_HIGH) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Timer with Sequence Nr %d expired for TaskID %d, sending message.", SearchPointer->SequenceNr, SearchPointer->TaskID);                      
                       
-                      TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,SearchPointer->TaskID,SearchPointer->TimerID,SearchPointer->SequenceNr,0);
+                      /*
+                        When the timer expires, TISM_SoftwareTimer will send a message to the specified task with the following data:
+                        - MessageType = <TimerID> specified by user
+                        - Payload1    = <SequenceNr> assigned by TISM_SoftwareTimer
+                        - Payload2    = <Parameter> specified by user
+                      */
+                      TISM_PostmanTaskWriteMessage(ThisTask, SearchPointer->HostID, SearchPointer->TaskID, SearchPointer->TimerID, SearchPointer->SequenceNr, SearchPointer->Parameter);
                       if(SearchPointer->RepetitiveTimer)
                       {
                         // Repetitive timer, reschedule for the next possible time in the future

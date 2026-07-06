@@ -94,20 +94,43 @@ uint8_t TISM_UartMXPacketsWaiting()
 
 
 /*
+  Description
+  Subscribe a task to incoming messages with a specific message type (either direct to this host or broadcast).
+  Allow only subscription for user defined message types, MessageType>=UARTMX_USER_MSG_TYPE_START.
   Use messaging instead of changing mappings directly for thread safety.
+
+  Parameters:
+  TISM_Task ThisTask  - Struct containing (among other things) the OutboundMessageQueue.
+  uint8_t MessageType - Incoming message type that needs to be routed to the subscribing task.
+                        Only the last subscribing task is stored.
+
+  Return value:
+  true                - Subscripbtion request sent succesfully
+  false               - Failure to deliver subscription request
 */
 bool TISM_UartMXSubscribe(TISM_Task ThisTask, uint8_t MessageType)
 {
-  return(TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_UartMXTaskID,TISM_MX_SUBSCRIBE,MessageType,0));
+  return(TISM_PostmanTaskWriteMessage(ThisTask, System.HostID, System.TISM_UartMXTaskID, TISM_MX_SUBSCRIBE, MessageType,0));
 }
 
 
 /*
+  Description
+  Unsubscribe this task from receiving messages with the specified message type.
   Use messaging instead of changing mappings directly for thread safety.
+  
+  Parameters:
+  TISM_Task ThisTask  - Struct containing (among other things) the OutboundMessageQueue.
+  uint8_t MessageType - Message type that no longer needs to be routed to this task.
+                        Per default incoming messages are handled by TISM_NetworkManager.
+
+  Return value:
+  true                - Unsubscribe request sent succesfully
+  false               - Failure to deliver unsubscribe request  
 */
 bool TISM_UartMXUnsubscribe(TISM_Task ThisTask, uint8_t MessageType)
 {
-  return(TISM_PostmanTaskWriteMessage(ThisTask,System.HostID,System.TISM_UartMXTaskID,TISM_MX_UNSUBSCRIBE,MessageType,0));
+  return(TISM_PostmanTaskWriteMessage(ThisTask, System.HostID, System.TISM_UartMXTaskID, TISM_MX_UNSUBSCRIBE, MessageType,0));
 }
 
 
@@ -494,8 +517,8 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
     case INIT:  // Activities to initialize the UART.
                 if(ThisTask.TaskDebug)
                 {
-                  TISM_EventLoggerLogEvent(ThisTask,TISM_LOG_EVENT_NOTIFY,"Initializing with priority %d.", ThisTask.TaskPriority);
-                  TISM_EventLoggerLogEvent(ThisTask,TISM_LOG_EVENT_NOTIFY,"Our Host ID is %d.", System.HostID);
+                  TISM_EventLoggerLogEvent(ThisTask,TISM_LOG_EVENT_NOTIFY, "Initializing with priority %d.", ThisTask.TaskPriority);
+                  TISM_EventLoggerLogEvent(ThisTask,TISM_LOG_EVENT_NOTIFY, "Our Host ID is %d.", System.HostID);
                 }
 
                 // Clear the MessageTypeToTaskMapping list and the UartMX circular buffer.
@@ -532,17 +555,17 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                 }
 
                 // Configure the UART
-                uart_init(UARTMX_UARTID,UARTMX_BAUDRATE);
-                gpio_set_function(UARTMX_TXGPIO,GPIO_FUNC_UART);
-                gpio_set_function(UARTMX_RXGPIO,GPIO_FUNC_UART);
-                uart_set_format(UARTMX_UARTID,8,1,UART_PARITY_NONE);
+                uart_init(UARTMX_UARTID, UARTMX_BAUDRATE);
+                gpio_set_function(UARTMX_TXGPIO, GPIO_FUNC_UART);
+                gpio_set_function(UARTMX_RXGPIO, GPIO_FUNC_UART);
+                uart_set_format(UARTMX_UARTID, 8, 1, UART_PARITY_NONE);
   
                 // Set an interrupt handler to process incoming messages
-                uart_set_fifo_enabled(UARTMX_UARTID,true);
+                uart_set_fifo_enabled(UARTMX_UARTID, true);
                 IRQ=(UARTMX_UARTID==uart0?UART0_IRQ:UART1_IRQ);
-                irq_set_exclusive_handler(IRQ,TISM_UartMXHandler);
-                irq_set_enabled(IRQ,true);
-                uart_set_irq_enables(UARTMX_UARTID,true,false);
+                irq_set_exclusive_handler(IRQ, TISM_UartMXHandler);
+                irq_set_enabled(IRQ, true);
+                uart_set_irq_enables(UARTMX_UARTID, true, false);
     
                 // This task is executed by the scheduler only if incoming data is received.
                 TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_SLEEP, true);
@@ -724,8 +747,8 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                                             // Check SenderHostID and RecipientHostID for invalid values.
                                             if(PacketValid)
                                             {
-                                              if(RxPacketBuffer[4]==System.HostID || RxPacketBuffer[4]==HOST_ID_LOCAL || RxPacketBuffer[4]==UARTMX_BROADCAST ||      // SenderHostID
-                                                 RxPacketBuffer[6]==HOST_ID_LOCAL || (RxPacketBuffer[6]!=UARTMX_BROADCAST && RxPacketBuffer[6]!=System.HostID))      // RecipientHostID
+                                              if(RxPacketBuffer[4]==System.HostID || RxPacketBuffer[4]==UARTMX_HOST_ID_LOCAL || RxPacketBuffer[4]==UARTMX_BROADCAST ||      // SenderHostID
+                                                 RxPacketBuffer[6]==UARTMX_HOST_ID_LOCAL || (RxPacketBuffer[6]!=UARTMX_BROADCAST && RxPacketBuffer[6]!=System.HostID))      // RecipientHostID
                                               {
                                                 PacketValid=false;
                                                 DropReason=UARTMX_RX_ERR_SENDERHOSTID;
@@ -882,7 +905,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                                                 //}
 
                                                 // If RecipientTaskID is 0x00 (unknown) or 0xFF (broadcast) use subscription mapping to determine target task.
-                                                // In most cases messages will be redirected to TISM_NetworkManager.
+                                                // Per default messages will be redirected to TISM_NetworkManager.
                                                 if(RecipientTaskID==0 || RecipientTaskID==UARTMX_BROADCAST)
                                                 {
                                                   RecipientTaskID=MessageTypeToTaskMapping[MessageType];
@@ -971,7 +994,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                     if(System.HostID==0)
                     {
                       // We're in adressless-mode. Drop the packet.
-                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Dropping utbound message as we're in addressless-mode; '%ld' type %s (0x%02X) from TaskID %d (HostID %d) received, addressed to TaskID %d (HostID %d).", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);
+                      TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Dropping outbound message as we're in addressless-mode; '%ld' type %s (0x%02X) from TaskID %d (HostID %d) received, addressed to TaskID %d (HostID %d).", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);
                     }
                     else                    
                     if(MessageToProcess->RecipientTaskID!=ThisTask.TaskID || MessageToProcess->RecipientHostID==0)  // Did we receive a packet for another TaskID? If it is routed here, it's a stray packet.
@@ -990,7 +1013,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                         case TISM_PING          : // Check if this process is still alive. Reply with a ECHO message type; return same message payload.
                                                   TISM_PostmanTaskWriteMessage(ThisTask,MessageToProcess->SenderHostID,MessageToProcess->SenderTaskID,TISM_ECHO,MessageToProcess->Payload0,0);
                                                   break;
-                        case TISM_MX_SUBSCRIBE  : // Subscribe a task to an incoming message with the specified message type.
+                        case TISM_MX_SUBSCRIBE  : // Subscribe a task to an incoming message (direct to this host or broadcast) with the specified message type.
                                                   // Allow only subscription for user defined message types; >=UARTMX_USER_MSG_TYPE_START
                                                   // Is there already a subscription to this message type? Then give a warning.
                                                   if((uint8_t)MessageToProcess->Payload0<UARTMX_USER_MSG_TYPE_START)

@@ -451,14 +451,14 @@ uint8_t TISM_NetworkManager (TISM_Task ThisTask)
                 DiscoveryOnTheNetworkTimer=0;
 
                 // Schedule a repeating task to send out TISM_INTRODUCE packets to the network.
-                TISM_SoftwareTimerSet(ThisTask, T_NETMGR_INTRODUCE, true, T_NETMGR_INTRODUCE_PERIOD*60000);
+                TISM_SoftwareTimerSet(ThisTask, T_NETMGR_INTRODUCE, 0, true, T_NETMGR_INTRODUCE_PERIOD*60000);
 
                 // Schedule a repeating task to run through network neighborhood list
-                TISM_SoftwareTimerSet(ThisTask, T_NETMGR_REVIEW_LIST, true, T_NETMGR_HOST_REFRESH*60000);
+                TISM_SoftwareTimerSet(ThisTask, T_NETMGR_REVIEW_LIST, 0, true, T_NETMGR_HOST_REFRESH*60000);
 
                 // Schedule a single task to send TISM_INTRODUCE at startup, with a delay based on our UniqueID to prevent all hosts from sending at the same time.
                 uint32_t StartupDelay=System.UniqueID & 0x3F;                                   // Use last 6 bits of UniqueID for startup delay (0-63 seconds)
-                TISM_SoftwareTimerSet(ThisTask, T_NETMGR_INTRODUCE, false, StartupDelay*1000);  // Schedule single task with delay in milliseconds 
+                TISM_SoftwareTimerSet(ThisTask, T_NETMGR_INTRODUCE, 0, false, StartupDelay*1000);  // Schedule single task with delay in milliseconds 
 
                 // For tasks that only respond to events (=messages) we can set the sleep attribute to ´true'.
                 TISM_SchedulerSetMyTaskAttribute(ThisTask, TISM_SET_TASK_SLEEP, true);
