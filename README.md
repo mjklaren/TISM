@@ -72,9 +72,10 @@ To make the most effective use of TISM follow these few tips:
 - Use the EventLogger facility to write messages to STDOUT. TISM supports dualcore operation; EventLogger makes sure logging messages don't overwrite eachother. The provided (simple) console also uses the EventLogger.
 - You can set the debugging levels of the whole system and each task separately. Check TISM_Console.c for example how to set. Use this carefully; extensive logging can slow the system down to a crawl! Furthermore, TISM provides for a 'step by step' run mode (see TISM.h) which is slow, but allows you to carefully review the handling of your tasks.
 
-## Change log - 260706
+## Change log - 260708
 - Added 'address-less' mode to TISM_UartMX, which allows clients to listen to broadcasts without being able send packets. Can be useful if you have multiple devices listening for remote commands without providing feedback.
 - Added feature to TISM_SoftwareTimer to allow timed messages to other hosts or tasks.
+- Small improvement to handling of PING and ECHO packets.
 
 ## Change log - 260321
 - Resolved a nasty bug that prevented tasks from going to sleep in single-core mode.
