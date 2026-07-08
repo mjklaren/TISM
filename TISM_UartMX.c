@@ -550,7 +550,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                 // Initialize received packets circular buffer
                 for(uint8_t Counter=0; Counter<UARTMX_RETRY_BUFFER; Counter++)
                 {
-                  RxSequenceHistory[Counter].SenderHostID=0x00; // 0x00 is never a valid SenderHostID
+                  RxSequenceHistory[Counter].SenderHostID=UARTMX_HOST_ID_LOCAL; // UARTMX_HOST_ID_LOCAL is never a valid SenderHostID
                   RxSequenceHistory[Counter].SequenceNumber=0;
                 }
 
@@ -743,7 +743,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                                               if(ThisTask.TaskDebug) TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Packet payload size error, dropping packet.");
                                             }                                            
 
-                                            // Prevent invalid/'spoofed'/duplicate values for SenderHostID (cannot be 0x00 or our own HostID). Also drop packets not addressed to us (when not a broadcast).
+                                            // Prevent invalid/'spoofed'/duplicate values for SenderHostID (cannot be UARTMX_HOST_ID_LOCAL or our own HostID). Also drop packets not addressed to us (when not a broadcast).
                                             // Check SenderHostID and RecipientHostID for invalid values.
                                             if(PacketValid)
                                             {
@@ -813,10 +813,11 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                                               Confirm receipt of packet via ACK/NAK:
                                               - Only when packets are directed to us
                                               - Only for non-broadcasts
-                                              - Only non-ACK/NAK packets
+                                              - Only non-ACK/NAK and non-PING/ECHO packets
                                               - Duplicate received packets are ALSO acknowledged
                                               ----------------------------------------------------*/  
-                                            if(RecipientHostID==System.HostID && MessageType!=TISM_ACK && MessageType!=TISM_NAK)
+                                            if(RecipientHostID==System.HostID && MessageType!=TISM_ACK && MessageType!=TISM_NAK && 
+                                               MessageType!=TISM_PING && MessageType!=TISM_ECHO)
                                             {
                                               // The ACK/NAK packet needs to be sent ASAP via the UART
                                               TISM_Message ACKNACKmessage={.SenderHostID=System.HostID,
@@ -938,7 +939,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
 
                 /* ----------------------------------------------------------------
                     Now process the UartMX's TISM message queue
-                    - Route messages for other hosts
+                    - Route messages intended for other hosts
                     - Process messages intented for this task (eg. subscriptions)
                  -----------------------------------------------------------------*/  
                 uint8_t MessageCounter=0;
@@ -951,7 +952,7 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
 
                   // Is this a message that needs to be routed somewhere else? RecipientHostID cannot be 0 ('localhost').
                   // We only route messages outbound when our Host ID is not 0 ('addressless-mode').
-                  if(System.HostID!=0 && MessageToProcess->RecipientHostID>0 && MessageToProcess->RecipientHostID!=System.HostID)
+                  if(System.HostID!=UARTMX_HOST_ID_LOCAL && MessageToProcess->RecipientHostID!=UARTMX_HOST_ID_LOCAL && MessageToProcess->RecipientHostID!=System.HostID)
                   {
                     // This message needs to be sent via the UART
                     uint8_t Packet[UARTMX_MAX_PACKET_SIZE], Length;
@@ -960,8 +961,10 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                     Length=TISM_UartMXBuildPacket(MessageToProcess, &Packet[0], TxSequenceNumber);
                     if(TISM_UartMXSendPacket(&Packet[0], Length))
                     {
-                      // Succesfully sent; register the packet in the retry buffer (if ACK/NAK expected), but not for outbound ACK/NAK packets and broadcasts!
-                      if(MessageToProcess->MessageType!=TISM_ACK && MessageToProcess->MessageType!=TISM_NAK && MessageToProcess->RecipientHostID!=UARTMX_BROADCAST)
+                      // Succesfully sent; register the packet in the retry buffer (if ACK/NAK expected), not for outbound ACK/NAK packets, PING/ECHO packets and broadcasts!
+                      if(MessageToProcess->MessageType!=TISM_ACK && MessageToProcess->MessageType!=TISM_NAK && 
+                         MessageToProcess->MessageType!=TISM_PING && MessageToProcess->MessageType!=TISM_ECHO &&
+                         MessageToProcess->RecipientHostID!=UARTMX_BROADCAST)
                         TISM_UartMXAddToRetryBuffer(ThisTask, &Packet[0], Length, TxSequenceNumber, MessageToProcess->RecipientHostID, MessageToProcess->RecipientTaskID);
                       else
                         if(MessageToProcess->RecipientHostID==UARTMX_BROADCAST)
@@ -991,13 +994,13 @@ uint8_t TISM_UartMX (TISM_Task ThisTask)
                   else
                   {
                     // Did we capture an outbound packet, but we do not have a valid HostID?
-                    if(System.HostID==0)
+                    if(System.HostID==UARTMX_HOST_ID_LOCAL)
                     {
                       // We're in adressless-mode. Drop the packet.
                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_NOTIFY, "Dropping outbound message as we're in addressless-mode; '%ld' type %s (0x%02X) from TaskID %d (HostID %d) received, addressed to TaskID %d (HostID %d).", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);
                     }
                     else                    
-                    if(MessageToProcess->RecipientTaskID!=ThisTask.TaskID || MessageToProcess->RecipientHostID==0)  // Did we receive a packet for another TaskID? If it is routed here, it's a stray packet.
+                    if(MessageToProcess->RecipientTaskID!=ThisTask.TaskID || MessageToProcess->RecipientHostID==UARTMX_HOST_ID_LOCAL)  // Did we receive a packet for another TaskID? If it is routed here, it's a stray packet.
                     {
                       // This shouldn't happen!
                       TISM_EventLoggerLogEvent (ThisTask, TISM_LOG_EVENT_ERROR, "Stray message received; '%ld' type %s (0x%02X) from TaskID %d (HostID %d) received, addressed to TaskID %d (HostID %d).", MessageToProcess->Payload0, TISM_MessageTypeToString(MessageToProcess->MessageType), MessageToProcess->MessageType, MessageToProcess->SenderTaskID, MessageToProcess->SenderHostID, MessageToProcess->RecipientTaskID, MessageToProcess->RecipientHostID);
